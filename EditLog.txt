@@ -1,3 +1,61 @@
+
+
+
+ninth
+
+fix: Use ParamSet in admin_spire_button_system to resolve query conflict
+
+Refactors the `admin_spire_button_system` in `src/main.rs` to use
+`ParamSet` for its two queries that access `BackgroundColor`.
+This resolves a runtime panic (Bevy error B0001) caused by conflicting
+mutable access to the `BackgroundColor` component by the queries for
+`ConstructSpireButton` and `UpgradeSpireButton`.
+
+The system signature was updated to use `ParamSet`, and query access
+within the function was changed to `button_queries.p0()` and
+`button_queries.p1()` respectively. This aligns with the recommended
+Bevy practice for handling such conflicts.
+
+
+eightth
+
+fix: Resolve closure type mismatch in graph drawing
+
+Corrects E0308 compilation errors in `draw_graph_gizmos` by using
+boxed trait objects for graph line accessor functions.
+
+Changes:
+- Defined a new trait `GraphableFn` specifying the signature
+  `Fn(&ColonyStats) -> f32`.
+- Implemented `GraphableFn` for all closures matching this signature.
+- Modified the `graph_lines` array to store accessor functions as
+  `Box<dyn GraphableFn>`.
+- Updated the iteration loop in `draw_graph_gizmos` to correctly
+  handle the array of boxed trait objects.
+
+This ensures that each closure, while having a unique unboxed type,
+can be treated uniformly through dynamic dispatch, resolving the
+type mismatch errors.
+
+
+seventh
+
+feat: Enhance graph with more data streams and update power display
+
+This commit addresses the issue of improving data visibility during gameplay by:
+
+1.  Extending `ColonyStats` to include `net_power` and `nutrient_paste`.
+2.  Modifying `update_colony_stats_system` to correctly populate these new fields in `ColonyStats`.
+3.  Updating the `draw_graph_gizmos` function in `main.rs` to:
+    *   Display new time-series lines for `credits`, `net_power`, `colony_happiness`, and `NutrientPaste`.
+    *   Introduce new color constants for these data series.
+    *   Adjust the `max_val` calculation to accommodate the range of these new values.
+    *   Clamp y-values to the graph area, meaning negative `net_power` will show as 0.
+4.  Making the power text display in the top UI bar more concise, now showing "Power - Net: X | Stored: Y".
+
+These changes provide a richer, more dynamic view of key game parameters changing over time, making it more engaging to observe the colony's status.
+
+
 Sixth update
 
 Fix: Resolve BackgroundColor conflict in admin_spire_button_system

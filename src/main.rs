@@ -9,6 +9,12 @@ use game_state::{
 
 mod game_state;
 
+// Define the trait
+trait GraphableFn: Fn(&ColonyStats) -> f32 {}
+
+// Implement the trait for all closures that fit the signature
+impl<F: Fn(&ColonyStats) -> f32> GraphableFn for F {}
+
 // --- UI Marker Components ---
 #[derive(Component)]
 struct PowerText;
@@ -62,6 +68,12 @@ const HOUSING_COLOR: Color = Color::rgb(0.2, 0.7, 1.0);
 const JOBS_COLOR: Color = Color::rgb(1.0, 0.7, 0.2);
 const HEALTH_COLOR: Color = Color::rgb(0.2, 1.0, 0.7);
 const POLICE_COLOR: Color = Color::rgb(1.0, 0.2, 0.2);
+
+// New colors for additional graph lines
+const CREDITS_COLOR: Color = Color::rgb(0.9, 0.8, 0.2); // Gold-ish
+const NET_POWER_COLOR: Color = Color::rgb(0.4, 0.6, 1.0); // Light Blue
+const HAPPINESS_COLOR: Color = Color::rgb(1.0, 0.5, 0.8); // Pink-ish
+const NUTRIENT_PASTE_COLOR: Color = Color::rgb(0.5, 0.9, 0.3); // Green-ish
 
 fn main() {
     App::new()
@@ -586,38 +598,51 @@ fn draw_graph_gizmos(
     // The Gizmos are drawn in world space, so we need the bottom-left corner of our UI node.
     let bottom_left = transform.translation().truncate() - graph_area / 2.0;
 
-    let max_val = graph_data.history.iter().fold(100.0f32, |max, stats| {
-        max.max(stats.total_housing as f32).max(stats.total_jobs as f32).max(stats.health_capacity as f32).max(stats.police_capacity as f32)
+    let max_val = graph_data.history.iter().fold(100.0f32, |max_so_far, stats| {
+        max_so_far
+            .max(stats.total_housing as f32)
+            .max(stats.total_jobs as f32)
+            .max(stats.health_capacity as f32)
+            .max(stats.police_capacity as f32)
+            .max(stats.credits as f32)      // Add this
+            .max(stats.net_power.abs())     // Add this (use abs for potential negative net_power for scaling)
+            .max(stats.happiness as f32)    // Add this
+            .max(stats.nutrient_paste as f32) // Add this
     });
 
-    let stat_types = [
-        (StatType::Housing, HOUSING_COLOR),
-        (StatType::Jobs, JOBS_COLOR),
-        (StatType::Health, HEALTH_COLOR),
-        (StatType::Police, POLICE_COLOR),
+    let graph_lines: [(Color, Box<dyn GraphableFn>); 8] = [
+        (HOUSING_COLOR, Box::new(|stats: &ColonyStats| stats.total_housing as f32)),
+        (JOBS_COLOR, Box::new(|stats: &ColonyStats| stats.total_jobs as f32)),
+        (HEALTH_COLOR, Box::new(|stats: &ColonyStats| stats.health_capacity as f32)),
+        (POLICE_COLOR, Box::new(|stats: &ColonyStats| stats.police_capacity as f32)),
+        (CREDITS_COLOR, Box::new(|stats: &ColonyStats| stats.credits as f32)),
+        (NET_POWER_COLOR, Box::new(|stats: &ColonyStats| stats.net_power as f32)),
+        (HAPPINESS_COLOR, Box::new(|stats: &ColonyStats| stats.happiness as f32)),
+        (NUTRIENT_PASTE_COLOR, Box::new(|stats: &ColonyStats| stats.nutrient_paste as f32)),
     ];
 
-    for (stat_type, color) in stat_types {
+    for (color, get_value) in graph_lines.iter() { // Iterate with .iter()
         let mut points: Vec<Vec2> = Vec::new();
         for (i, stats) in graph_data.history.iter().enumerate() {
-            let value = match stat_type {
-                StatType::Housing => stats.total_housing as f32,
-                StatType::Jobs => stats.total_jobs as f32,
-                StatType::Health => stats.health_capacity as f32,
-                StatType::Police => stats.police_capacity as f32,
-            };
+            let value = get_value(stats); // Calling the boxed closure
+
+            // X-coordinate calculation (newest data on the right)
+            let point_x_offset = (i as f32 / graph_data.history.len().max(1) as f32) * graph_area.x;
+            let x = graph_area.x - point_x_offset;
+
+            // Y-coordinate calculation with scaling
+            let y_scaled = if max_val == 0.0 { 0.0 } else { (value / max_val) * graph_area.y };
             
-            let x = graph_area.x - (i as f32 * (graph_area.x / 200.0));
-            let y = (value / max_val) * graph_area.y;
-            
-            if x >= 0.0 && y >= 0.0 {
-                // Add the panel's bottom-left corner to translate to world space
-                points.push(bottom_left + Vec2::new(x, y));
+            // Clamp y to be within the visible graph area [0, graph_area.y]
+            // This means negative values (like for net_power) will be at the bottom line.
+            // Ensure points are within the x-bounds before adding.
+            if x >= 0.0 && x <= graph_area.x {
+                 points.push(bottom_left + Vec2::new(x, y_scaled.clamp(0.0, graph_area.y)));
             }
         }
 
         if points.len() > 1 {
-            gizmos.linestrip_2d(points, color);
+            gizmos.linestrip_2d(points, *color); // Dereference color
         }
     }
 }
@@ -869,11 +894,9 @@ fn update_text_display(
         let con = game_state.total_consumed_power;
         let net = gen - con;
         text.sections[0].value = format!(
-            "Power: {:.0} (Stored) | Gen: {:.0}, Con: {:.0}, Net: {:.0}",
-            stored_power,
-            gen,
-            con,
-            net
+            "Power - Net: {:.0} | Stored: {:.0}",
+            net,
+            stored_power
         );
     }
 
@@ -912,7 +935,7 @@ fn admin_spire_button_system(
     mut log: ResMut<MessageLog>,
 ) {
     // Handle Construct Spire Button
-    for (interaction, mut color) in &mut button_queries.p0() {
+    for (interaction, mut color) in button_queries.p0().iter_mut() {
         match *interaction {
             Interaction::Pressed => {
                 *color = PRESSED_BUTTON.into();
@@ -945,7 +968,7 @@ fn admin_spire_button_system(
     }
 
     // Handle Upgrade Spire Button
-    for (interaction, mut color) in &mut button_queries.p1() {
+    for (interaction, mut color) in button_queries.p1().iter_mut() {
         match *interaction {
             Interaction::Pressed => {
                 *color = PRESSED_BUTTON.into();

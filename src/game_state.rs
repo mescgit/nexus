@@ -592,8 +592,11 @@ pub struct ColonyStats {
     pub total_jobs: u32,
     pub health_capacity: u32,
     pub police_capacity: u32,
-    pub happiness: f32, 
-    pub credits: f64, // Added credits field
+    pub happiness: f32,
+    pub credits: f64,
+    // Add these:
+    pub net_power: f32,
+    pub nutrient_paste: f32,
 }
 
 // Stores a history of stats for graphing.
@@ -1752,8 +1755,10 @@ fn update_colony_stats_system(
     // TODO: Add game_state.colony_happiness to ColonyStats if it's to be graphed or easily displayed.
     // For now, ColonyStats is primarily for things queried from Bevy components.
     // Let's add it directly for now for simplicity in testing, can be refactored.
-    stats.happiness = game_state.colony_happiness; // This line should now work
-    stats.credits = game_state.credits; // This line should now work
+    stats.happiness = game_state.colony_happiness;
+    stats.credits = game_state.credits;
+    stats.net_power = game_state.total_generated_power - game_state.total_consumed_power;
+    stats.nutrient_paste = *game_state.current_resources.get(&ResourceType::NutrientPaste).unwrap_or(&0.0);
 }
 
 fn research_system(mut game_state: ResMut<GameState>, query: Query<&ResearchInstitute>) {
