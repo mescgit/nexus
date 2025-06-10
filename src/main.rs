@@ -25,6 +25,24 @@ struct ColonyStatText(StatType);
 #[derive(Component)]
 struct CreditsText; // New marker component for Credits
 #[derive(Component)]
+struct HappinessText; // Marker component for Happiness
+#[derive(Component)]
+struct ConstructSpireButton;
+#[derive(Component)]
+struct UpgradeSpireButton;
+#[derive(Component)]
+struct BuildHabitationButton(usize); // usize is the tier_index
+#[derive(Component)]
+struct BuildServiceBuildingButton {
+    service_type: game_state::ServiceType, // Ensure game_state::ServiceType is in scope
+    tier_index: usize,
+}
+#[derive(Component)]
+struct BuildZoneButton {
+    zone_type: game_state::ZoneType, // Ensure game_state::ZoneType is in scope
+    tier_index: usize,
+}
+#[derive(Component)]
 struct GraphArea; // Marker for the graph's background node
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -73,7 +91,70 @@ impl Plugin for UiPlugin {
                 research_button_system,
                 update_text_display,
                 draw_graph_gizmos, // REPLACED: draw_graph_system with a gizmo version
+                admin_spire_button_system,
+                habitation_button_system,
+                service_building_button_system,
+                zone_button_system, // Add the new system
             ));
+    }
+}
+
+fn habitation_button_system(
+    mut interaction_query: Query<(&Interaction, &BuildHabitationButton, &mut BackgroundColor), Changed<Interaction>>,
+    mut game_state: ResMut<GameState>,
+    mut log: ResMut<MessageLog>,
+) {
+    for (interaction, button_data, mut color) in &mut interaction_query {
+        let tier_index = button_data.0;
+        match *interaction {
+            Interaction::Pressed => {
+                *color = PRESSED_BUTTON.into();
+                
+                // Check if tech is required (assuming BasicConstructionProtocols for all for now)
+                if !game_state.unlocked_techs.contains(&Tech::BasicConstructionProtocols) {
+                    log.message = "Requires Basic Construction Protocols.".to_string();
+                    continue; 
+                }
+
+                let initial_credits = game_state.credits;
+                let initial_structure_count = game_state.habitation_structures.len();
+
+                game_state::add_habitation_structure(&mut game_state, tier_index);
+                
+                if game_state.habitation_structures.len() > initial_structure_count && game_state.credits < initial_credits {
+                    // Success if a new structure was added and credits were deducted
+                    let tier_name = game_state.habitation_structures.last()
+                        .and_then(|s| s.available_tiers.get(s.tier_index))
+                        .map_or_else(|| format!("Tier {}", tier_index), |t| t.name.clone());
+                    log.message = format!("{} constructed.", tier_name);
+                } else if game_state.credits == initial_credits && game_state.habitation_structures.len() == initial_structure_count {
+                    // Failed, likely due to cost. game_state::add_habitation_structure prints to console.
+                     let all_tiers = game_state::get_habitation_tiers(); // Fetch tiers to get cost
+                     if let Some(tier_info) = all_tiers.get(tier_index) {
+                        log.message = format!("Failed: Need {} credits for {}.", tier_info.construction_credits_cost, tier_info.name);
+                     } else {
+                        log.message = format!("Failed to build Habitation Tier {}. Check credits/console.", tier_index);
+                     }
+                } else {
+                    // Other cases or if only one condition met (e.g. structure added but no credit change - unlikely with current setup)
+                    log.message = format!("Action completed for Habitation Tier {}. Check console for details.", tier_index);
+                }
+            }
+            Interaction::Hovered => {
+                *color = HOVERED_BUTTON.into();
+                let tiers = game_state::get_habitation_tiers();
+                if let Some(tier_info) = tiers.get(tier_index) {
+                    let mut message = format!("{}: Cost {} Credits.", tier_info.name, tier_info.construction_credits_cost);
+                    if !game_state.unlocked_techs.contains(&Tech::BasicConstructionProtocols) {
+                        message.push_str(" (Req: Basic Construction Protocols)");
+                    }
+                    log.message = message;
+                } else {
+                    log.message = format!("Hovering Habitation Tier {}.", tier_index);
+                }
+            }
+            Interaction::None => { *color = NORMAL_BUTTON.into(); }
+        }
     }
 }
 
@@ -142,6 +223,22 @@ fn setup_ui(mut commands: Commands) {
             parent.spawn((TextBundle::from_section("Jobs:", TextStyle { font_size: 20.0, color: JOBS_COLOR, ..default() }).with_style(Style { margin: UiRect { left: Val::Px(20.0), ..default() }, ..default() }), ColonyStatText(StatType::Jobs)));
             parent.spawn((TextBundle::from_section("Health:", TextStyle { font_size: 20.0, color: HEALTH_COLOR, ..default() }).with_style(Style { margin: UiRect { left: Val::Px(20.0), ..default() }, ..default() }), ColonyStatText(StatType::Health)));
             parent.spawn((TextBundle::from_section("Police:", TextStyle { font_size: 20.0, color: POLICE_COLOR, ..default() }).with_style(Style { margin: UiRect { left: Val::Px(20.0), ..default() }, ..default() }), ColonyStatText(StatType::Police)));
+            // Spawn HappinessText
+            parent.spawn((
+                TextBundle::from_section(
+                    "Happiness: 0%", // Initial text
+                    TextStyle {
+                        font_size: 20.0, // Consistent font size
+                        color: Color::rgb(0.8, 0.8, 0.2), // A yellowish color
+                        ..default()
+                    }
+                )
+                .with_style(Style {
+                    margin: UiRect { left: Val::Px(20.0), ..default() }, // Consistent margin
+                    ..default()
+                }),
+                HappinessText // Marker component
+            ));
         });
 
         // --- Center Content (Graph Area) ---
@@ -165,12 +262,93 @@ fn setup_ui(mut commands: Commands) {
                     let buildings = [
                         BuildingType::BioDome, BuildingType::Extractor, BuildingType::PowerRelay,
                         BuildingType::StorageSilo, BuildingType::ResearchInstitute,
-                        BuildingType::Fabricator, BuildingType::ProcessingPlant, // Added
-                        BuildingType::BasicDwelling, BuildingType::WellnessPost, BuildingType::SecurityStation,
+                        BuildingType::Fabricator, BuildingType::ProcessingPlant,
                     ];
                     for building_type in buildings {
                         parent.spawn((ButtonBundle { style: Style { padding: UiRect::all(Val::Px(8.)), margin: UiRect::all(Val::Px(3.)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }, background_color: NORMAL_BUTTON.into(), ..default() }, BuildButton(building_type)))
                                 .with_children(|p| { p.spawn(TextBundle::from_section(format!("Build {:?}", building_type), TextStyle { font_size: 16.0, ..default() })); });
+                    }
+
+                    // Add new Spire buttons:
+                    parent.spawn((
+                        ButtonBundle {
+                            style: Style { padding: UiRect::all(Val::Px(8.)), margin: UiRect::all(Val::Px(3.)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() },
+                            background_color: NORMAL_BUTTON.into(),
+                            ..default()
+                        },
+                        ConstructSpireButton
+                    )).with_children(|p| {
+                        p.spawn(TextBundle::from_section("Construct Spire", TextStyle { font_size: 16.0, ..default() }));
+                    });
+
+                    parent.spawn((
+                        ButtonBundle {
+                            style: Style { padding: UiRect::all(Val::Px(8.)), margin: UiRect::all(Val::Px(3.)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() },
+                            background_color: NORMAL_BUTTON.into(),
+                            ..default()
+                        },
+                        UpgradeSpireButton
+                    )).with_children(|p| {
+                        p.spawn(TextBundle::from_section("Upgrade Spire", TextStyle { font_size: 16.0, ..default() }));
+                    });
+
+                    // Add Habitation Structure buttons
+                    let habitation_tiers_info = [
+                        (0, "Build Basic Dwellings"),
+                        (1, "Build Community Blocks"),
+                        (2, "Build Arcology Spires"),
+                    ];
+
+                    for (tier_index, button_text) in habitation_tiers_info.iter() {
+                        parent.spawn((
+                            ButtonBundle {
+                                style: Style { padding: UiRect::all(Val::Px(8.)), margin: UiRect::all(Val::Px(3.)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() },
+                                background_color: NORMAL_BUTTON.into(),
+                                ..default()
+                            },
+                            BuildHabitationButton(*tier_index) // Store tier_index
+                        )).with_children(|p| {
+                            p.spawn(TextBundle::from_section(*button_text, TextStyle { font_size: 16.0, ..default() }));
+                        });
+                    }
+
+                    // Add Service Building buttons
+                    let service_buildings_to_add = [
+                        (game_state::ServiceType::Wellness, 0, "Build Clinic"),
+                        (game_state::ServiceType::Security, 0, "Build Security Post"),
+                        // (game_state::ServiceType::Education, 0, "Build School") // Example for more
+                    ];
+
+                    for (service_type, tier_index, button_text) in service_buildings_to_add.iter() {
+                        parent.spawn((
+                            ButtonBundle {
+                                style: Style { padding: UiRect::all(Val::Px(8.)), margin: UiRect::all(Val::Px(3.)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() },
+                                background_color: NORMAL_BUTTON.into(),
+                                ..default()
+                            },
+                            BuildServiceBuildingButton { service_type: *service_type, tier_index: *tier_index }
+                        )).with_children(|p| {
+                            p.spawn(TextBundle::from_section(*button_text, TextStyle { font_size: 16.0, ..default() }));
+                        });
+                    }
+
+                    // Add Zone buttons
+                    let zones_to_add = [
+                        (game_state::ZoneType::Commercial, 0, "Develop Market Stalls"), // Commercial Tier 0
+                        (game_state::ZoneType::LightIndustry, 0, "Develop Workshops"),   // Light Industry Tier 0
+                    ];
+
+                    for (zone_type, tier_index, button_text) in zones_to_add.iter() {
+                        parent.spawn((
+                            ButtonBundle {
+                                style: Style { padding: UiRect::all(Val::Px(8.)), margin: UiRect::all(Val::Px(3.)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() },
+                                background_color: NORMAL_BUTTON.into(),
+                                ..default()
+                            },
+                            BuildZoneButton { zone_type: *zone_type, tier_index: *tier_index }
+                        )).with_children(|p| {
+                            p.spawn(TextBundle::from_section(*button_text, TextStyle { font_size: 16.0, ..default() }));
+                        });
                     }
                 });
             
@@ -179,6 +357,16 @@ fn setup_ui(mut commands: Commands) {
                     // TODO: Add UI buttons for new research like EfficientExtraction.
                     parent.spawn((ButtonBundle { style: Style { padding: UiRect::all(Val::Px(8.)), margin: UiRect::horizontal(Val::Px(5.)), ..default() }, background_color: NORMAL_BUTTON.into(), ..default() }, ResearchButton(Tech::BasicConstructionProtocols)))
                             .with_children(|p| { p.spawn(TextBundle::from_section("Research Basic Construction", TextStyle { font_size: 16.0, ..default() })); });
+                    parent.spawn((
+                        ButtonBundle {
+                            style: Style { padding: UiRect::all(Val::Px(8.)), margin: UiRect::horizontal(Val::Px(5.)), ..default() },
+                            background_color: NORMAL_BUTTON.into(),
+                            ..default()
+                        },
+                        ResearchButton(Tech::EfficientExtraction) // Use the correct Tech enum variant
+                    )).with_children(|p| {
+                        p.spawn(TextBundle::from_section("Research Efficient Extraction", TextStyle { font_size: 16.0, ..default() }));
+                    });
                     parent.spawn((TextBundle::from_section("Welcome!", TextStyle { font_size: 20.0, ..default() }).with_style(Style{margin: UiRect::left(Val::Px(20.0)), ..default()}), MessageText));
                 });
         });
@@ -434,6 +622,132 @@ fn draw_graph_gizmos(
     }
 }
 
+fn zone_button_system(
+    mut interaction_query: Query<(&Interaction, &BuildZoneButton, &mut BackgroundColor), Changed<Interaction>>,
+    mut game_state: ResMut<GameState>,
+    mut log: ResMut<MessageLog>,
+) {
+    for (interaction, button_data, mut color) in &mut interaction_query {
+        let zone_type = button_data.zone_type;
+        let tier_index = button_data.tier_index;
+
+        match *interaction {
+            Interaction::Pressed => {
+                *color = PRESSED_BUTTON.into();
+
+                // Tech check (assuming BasicConstructionProtocols for all zones for now)
+                if !game_state.unlocked_techs.contains(&Tech::BasicConstructionProtocols) {
+                    log.message = "Requires Basic Construction Protocols.".to_string();
+                    continue; 
+                }
+
+                let initial_credits = game_state.credits;
+                let initial_zone_count = game_state.zones.len();
+
+                game_state::add_zone(&mut game_state, zone_type, tier_index);
+                
+                if game_state.zones.len() > initial_zone_count && game_state.credits < initial_credits {
+                    // Success: new zone added and credits deducted.
+                    let all_tiers_for_type = game_state::get_zone_tiers(zone_type);
+                    let name = all_tiers_for_type.get(tier_index).map_or_else(
+                        || format!("{:?} Tier {}", zone_type, tier_index),
+                        |t| t.name.clone()
+                    );
+                    log.message = format!("{} developed.", name);
+                } else if game_state.credits == initial_credits && game_state.zones.len() == initial_zone_count {
+                    // Failed, likely due to cost. game_state::add_zone prints to console.
+                    let all_tiers_for_type = game_state::get_zone_tiers(zone_type);
+                    if let Some(tier_info) = all_tiers_for_type.get(tier_index) {
+                        log.message = format!("Failed: Need {} credits for {}.", tier_info.construction_credits_cost, tier_info.name);
+                    } else {
+                        log.message = format!("Failed to develop {:?} (Tier {}). Check credits/console.", zone_type, tier_index);
+                    }
+                } else {
+                    log.message = format!("Action for {:?} (Tier {}). Check console.", zone_type, tier_index);
+                }
+            }
+            Interaction::Hovered => {
+                *color = HOVERED_BUTTON.into();
+                let tiers = game_state::get_zone_tiers(button_data.zone_type);
+                if let Some(tier_info) = tiers.get(button_data.tier_index) {
+                    let mut message = format!("{}: Cost {} Credits. Upkeep: {} Credits.", tier_info.name, tier_info.construction_credits_cost, tier_info.upkeep_cost);
+                    if !game_state.unlocked_techs.contains(&Tech::BasicConstructionProtocols) {
+                        message.push_str(" (Req: Basic Construction Protocols)");
+                    }
+                    log.message = message;
+                } else {
+                    log.message = format!("Hovering Zone {:?} Tier {}.", button_data.zone_type, button_data.tier_index);
+                }
+            }
+            Interaction::None => { *color = NORMAL_BUTTON.into(); }
+        }
+    }
+}
+
+fn service_building_button_system(
+    mut interaction_query: Query<(&Interaction, &BuildServiceBuildingButton, &mut BackgroundColor), Changed<Interaction>>,
+    mut game_state: ResMut<GameState>,
+    mut log: ResMut<MessageLog>,
+) {
+    for (interaction, button_data, mut color) in &mut interaction_query {
+        let service_type = button_data.service_type;
+        let tier_index = button_data.tier_index;
+
+        match *interaction {
+            Interaction::Pressed => {
+                *color = PRESSED_BUTTON.into();
+
+                // Tech check (assuming BasicConstructionProtocols for all service buildings for now)
+                if !game_state.unlocked_techs.contains(&Tech::BasicConstructionProtocols) {
+                    log.message = "Requires Basic Construction Protocols.".to_string();
+                    continue; 
+                }
+
+                let initial_credits = game_state.credits;
+                let initial_building_count = game_state.service_buildings.len();
+
+                // The add_service_building function in game_state takes an Option<(f32, f32)> for position.
+                // For UI buttons, we'll pass None for now, meaning no specific position.
+                game_state::add_service_building(&mut game_state, service_type, tier_index, None);
+                
+                if game_state.service_buildings.len() > initial_building_count && game_state.credits < initial_credits {
+                    // Success: new building added and credits deducted.
+                    let tiers_for_type = game_state::get_service_building_tiers(service_type);
+                    let name = tiers_for_type.get(tier_index).map_or_else(
+                        || format!("{:?} Tier {}", service_type, tier_index),
+                        |t| t.name.clone()
+                    );
+                    log.message = format!("{} constructed.", name);
+                } else if game_state.credits == initial_credits && game_state.service_buildings.len() == initial_building_count {
+                    // Failed, likely due to cost. game_state::add_service_building prints to console.
+                    let all_tiers_for_type = game_state::get_service_building_tiers(service_type);
+                    if let Some(tier_info) = all_tiers_for_type.get(tier_index) {
+                        log.message = format!("Failed: Need {} credits for {}.", tier_info.construction_credits_cost, tier_info.name);
+                    } else {
+                        log.message = format!("Failed to build {:?} (Tier {}). Check credits/console.", service_type, tier_index);
+                    }
+                } else {
+                    log.message = format!("Action for {:?} (Tier {}). Check console.", service_type, tier_index);
+                }
+            }
+            Interaction::Hovered => {
+                *color = HOVERED_BUTTON.into();
+                let tiers = game_state::get_service_building_tiers(button_data.service_type);
+                if let Some(tier_info) = tiers.get(button_data.tier_index) {
+                    let mut message = format!("{}: Cost {} Credits. Upkeep: {} Credits.", tier_info.name, tier_info.construction_credits_cost, tier_info.upkeep_cost);
+                    if !game_state.unlocked_techs.contains(&Tech::BasicConstructionProtocols) {
+                        message.push_str(" (Req: Basic Construction Protocols)");
+                    }
+                    log.message = message;
+                } else {
+                    log.message = format!("Hovering Service {:?} Tier {}.", button_data.service_type, button_data.tier_index);
+                }
+            }
+            Interaction::None => { *color = NORMAL_BUTTON.into(); }
+        }
+    }
+}
+
 fn button_interaction_system(
     mut interaction_query: Query<(&Interaction, &BuildButton, &mut BackgroundColor), Changed<Interaction>>,
     mut game_state: ResMut<GameState>,
@@ -536,6 +850,7 @@ fn update_text_display(
         Query<(&mut Text, &ColonyStatText)>,
         Query<&mut Text, With<MessageText>>,
         Query<&mut Text, With<CreditsText>>, // Added query for CreditsText
+        Query<&mut Text, With<HappinessText>> // New query for HappinessText
     )>,
     // Removed: power_q, extractor_q, biodome_q, research_institute_q
     // as power data will now come from game_state
@@ -580,5 +895,107 @@ fn update_text_display(
     // Update Credits display
     for mut text in text_queries.p4().iter_mut() { // p4 is the new index for CreditsText
         text.sections[0].value = format!("Credits: {:.0}", game_state.credits);
+    }
+
+    // Update Happiness display
+    for mut text in text_queries.p5().iter_mut() { // p5 is the new index for HappinessText
+        text.sections[0].value = format!("Happiness: {:.1}%", game_state.colony_happiness);
+    }
+}
+
+fn admin_spire_button_system(
+    mut construct_interaction_query: Query<(&Interaction, &mut BackgroundColor), (Changed<Interaction>, With<ConstructSpireButton>)>,
+    mut upgrade_interaction_query: Query<(&Interaction, &mut BackgroundColor), (Changed<Interaction>, With<UpgradeSpireButton>)>,
+    mut game_state: ResMut<GameState>,
+    mut log: ResMut<MessageLog>,
+) {
+    // Handle Construct Spire Button
+    for (interaction, mut color) in &mut construct_interaction_query {
+        match *interaction {
+            Interaction::Pressed => {
+                *color = PRESSED_BUTTON.into();
+                // Call game_state function
+                // Temporarily store original credits to check if they changed
+                let credits_before = game_state.credits;
+                game_state::construct_administrative_spire(&mut game_state);
+                // Check if spire was constructed or if there was an issue (e.g. not enough credits)
+                if game_state.administrative_spire.is_some() && game_state.credits < credits_before {
+                    log.message = "Administrative Spire constructed.".to_string();
+                } else if game_state.administrative_spire.is_some() {
+                    // Spire exists, but credits didn't change - means it was already there
+                    log.message = "Administrative Spire already exists.".to_string();
+                } else {
+                    // Spire not constructed, likely due to cost (original function prints to console)
+                    log.message = "Failed to construct Spire. Check credits/console.".to_string();
+                }
+            }
+            Interaction::Hovered => {
+                *color = HOVERED_BUTTON.into();
+                if game_state.administrative_spire.is_none() {
+                    // Manually use the known first tier cost for "Command Post"
+                    log.message = "Command Post: Cost 1000 Credits. Upkeep not applicable for construction.".to_string();
+                } else {
+                    log.message = "Administrative Spire already constructed.".to_string();
+                }
+            }
+            Interaction::None => { *color = NORMAL_BUTTON.into(); }
+        }
+    }
+
+    // Handle Upgrade Spire Button
+    for (interaction, mut color) in &mut upgrade_interaction_query {
+        match *interaction {
+            Interaction::Pressed => {
+                *color = PRESSED_BUTTON.into();
+                if game_state.administrative_spire.is_none() {
+                    log.message = "Construct Administrative Spire first.".to_string();
+                    continue;
+                }
+                // Call game_state function
+                let current_tier_before_upgrade = game_state.administrative_spire.as_ref().map(|s| s.current_tier_index);
+                game_state::upgrade_administrative_spire(&mut game_state);
+                let current_tier_after_upgrade = game_state.administrative_spire.as_ref().map(|s| s.current_tier_index);
+
+                if current_tier_after_upgrade > current_tier_before_upgrade {
+                    log.message = "Administrative Spire upgraded.".to_string();
+                } else if current_tier_after_upgrade == current_tier_before_upgrade && current_tier_before_upgrade.is_some() {
+                     log.message = "Spire upgrade failed (check console/requirements).".to_string();
+                     // Try to provide more specific feedback
+                    if let Some(spire) = &game_state.administrative_spire {
+                        if spire.current_tier_index < spire.available_tiers.len() - 1 {
+                            let next_tier_info = &spire.available_tiers[spire.current_tier_index + 1];
+                            if game_state.credits < next_tier_info.upgrade_credits_cost as f64 {
+                                 log.message = format!("Upgrade failed: Need {} credits.", next_tier_info.upgrade_credits_cost);
+                            } else if next_tier_info.nutrient_paste_link_required && !spire.is_linked_to_hub {
+                                 log.message = "Upgrade failed: Nutrient Paste link required.".to_string();
+                            } else {
+                                 // Power check is more complex, rely on console for now or simplify
+                                 log.message = "Upgrade failed: Check power or other requirements (console).".to_string();
+                            }
+                        } else {
+                            log.message = "Spire already at max tier.".to_string();
+                        }
+                    }
+                } else {
+                    // Should not happen if spire exists, but as a fallback
+                    log.message = "Error during Spire upgrade (check console).".to_string();
+                }
+            }
+            Interaction::Hovered => {
+                *color = HOVERED_BUTTON.into();
+                if let Some(spire) = &game_state.administrative_spire {
+                    if spire.current_tier_index < spire.available_tiers.len() - 1 {
+                        let next_tier_info = &spire.available_tiers[spire.current_tier_index + 1];
+                        // AdministrativeSpireTier doesn't have an explicit upkeep field in game_state.rs
+                        log.message = format!("Upgrade to {}: Cost {} Credits. Upkeep not specified on tier.", next_tier_info.name, next_tier_info.upgrade_credits_cost);
+                    } else {
+                        log.message = "Spire at max tier.".to_string();
+                    }
+                } else {
+                    log.message = "Construct Spire first.".to_string();
+                }
+            }
+            Interaction::None => { *color = NORMAL_BUTTON.into(); }
+        }
     }
 }

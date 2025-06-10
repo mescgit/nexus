@@ -138,6 +138,7 @@ pub struct AdministrativeSpire {
 
 // --- Habitation Data Structures ---
 
+#[derive(Clone)]
 pub struct HabitationStructureTier {
     pub name: String,
     pub housing_capacity: u32,
@@ -164,6 +165,7 @@ pub enum ServiceType {
     Spiritual,
 }
 
+#[derive(Clone)]
 pub struct ServiceBuildingTier {
     pub name: String,
     pub specialist_requirement: u32,
@@ -191,6 +193,7 @@ pub enum ZoneType {
     LightIndustry,
 }
 
+#[derive(Clone)]
 pub struct ZoneTier {
     pub name: String,
     pub specialist_jobs_provided: u32,
@@ -533,6 +536,7 @@ pub struct GameState {
 
 // --- Fabricator Data Structures ---
 
+#[derive(Clone)]
 pub struct FabricatorTier {
     pub name: String,
     pub input_resources: HashMap<ResourceType, u32>,
@@ -557,6 +561,7 @@ pub struct FabricatorData {
 
 // --- Processing Plant Data Structures ---
 
+#[derive(Clone)]
 pub struct ProcessingPlantTier {
     pub name: String,
     pub unlocks_resource: Option<ResourceType>,
@@ -1400,6 +1405,7 @@ pub fn add_zone(game_state: &mut GameState, zone_type: ZoneType, tier_index: usi
 }
 
 pub fn upgrade_zone(game_state: &mut GameState, zone_id: &str) {
+    let mut upgraded = false;
     if let Some(zone) = game_state.zones.iter_mut().find(|z| z.id == zone_id) {
         if zone.current_tier_index < zone.available_tiers.len() - 1 {
             let next_tier_index = zone.current_tier_index + 1;
@@ -1729,7 +1735,6 @@ fn game_tick_system(
 fn update_colony_stats_system(
     mut stats: ResMut<ColonyStats>,
     game_state: Res<GameState>, // Added game_state parameter
-    dwellings: Query<&BasicDwelling>,
     wellness_posts: Query<&WellnessPost>,
     security_stations: Query<&SecurityStation>,
 ) {
