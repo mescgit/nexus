@@ -9,6 +9,8 @@ use std::collections::{HashMap, HashSet, VecDeque};
 pub enum ResourceType {
     FerrocreteOre,
     NutrientPaste,
+    CuprumDeposits,
+    Power,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -19,6 +21,8 @@ pub enum BuildingType {
     PowerRelay,
     StorageSilo,
     ResearchInstitute,
+    Fabricator, // Added Fabricator
+    ProcessingPlant, // Added ProcessingPlant
     // Habitation Sector
     BasicDwelling,
     WellnessPost,
@@ -28,25 +32,42 @@ pub enum BuildingType {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Tech {
     BasicConstructionProtocols,
+    EfficientExtraction,
 }
 
 // --- Building Components ---
 #[derive(Component)]
-pub struct Extractor { pub power_required: u32, pub resource_type: ResourceType, pub extraction_rate: f32 }
+pub struct Extractor { pub power_consumption: u32, pub resource_type: ResourceType, pub extraction_rate: f32 } // Renamed power_required
 #[derive(Component)]
-pub struct BioDome { pub power_required: u32, pub production_rate: f32 }
+pub struct BioDome { pub power_consumption: u32, pub production_rate: f32 } // Renamed power_required
 #[derive(Component)]
 pub struct PowerRelay { pub power_output: u32 }
 #[derive(Component)]
 pub struct StorageSilo { pub capacity: u32 }
 #[derive(Component)]
-pub struct ResearchInstitute;
+pub struct ResearchInstitute { pub power_consumption: u32 } // Added power_consumption
 #[derive(Component)]
 pub struct BasicDwelling { pub housing_capacity: u32 }
 #[derive(Component)]
 pub struct WellnessPost { pub health_capacity: u32, pub jobs_provided: u32 }
 #[derive(Component)]
 pub struct SecurityStation { pub police_capacity: u32, pub jobs_provided: u32 }
+
+#[derive(Component)]
+pub struct Fabricator {
+    pub power_consumption: u32,
+    pub input_resource: ResourceType,
+    pub input_amount: f32,
+    pub output_resource: ResourceType,
+    pub output_amount: f32,
+    pub conversion_rate: f32, // Assuming 1.0 for now, effectively cycles per tick
+}
+
+#[derive(Component)]
+pub struct ProcessingPlant {
+    pub power_consumption: u32,
+    // Fields for input/output/rate can be added later when mechanics are defined
+}
 
 
 // --- Game State Resources ---
@@ -85,16 +106,21 @@ impl Default for GameState {
         building_costs.insert(BuildingType::PowerRelay, HashMap::from([(ResourceType::FerrocreteOre, 60.0)]));
         building_costs.insert(BuildingType::StorageSilo, HashMap::from([(ResourceType::FerrocreteOre, 100.0)]));
         building_costs.insert(BuildingType::ResearchInstitute, HashMap::from([(ResourceType::FerrocreteOre, 150.0)]));
+        building_costs.insert(BuildingType::Fabricator, HashMap::from([(ResourceType::FerrocreteOre, 200.0)]));
+        building_costs.insert(BuildingType::ProcessingPlant, HashMap::from([(ResourceType::FerrocreteOre, 180.0)]));
         building_costs.insert(BuildingType::BasicDwelling, HashMap::from([(ResourceType::FerrocreteOre, 100.0)]));
         building_costs.insert(BuildingType::WellnessPost, HashMap::from([(ResourceType::FerrocreteOre, 120.0)]));
         building_costs.insert(BuildingType::SecurityStation, HashMap::from([(ResourceType::FerrocreteOre, 120.0)]));
         
         let mut tech_costs = HashMap::new();
         tech_costs.insert(Tech::BasicConstructionProtocols, 10.0);
+        tech_costs.insert(Tech::EfficientExtraction, 25.0);
 
         let mut current_resources = HashMap::new();
         current_resources.insert(ResourceType::NutrientPaste, 50.0);
         current_resources.insert(ResourceType::FerrocreteOre, 200.0);
+        current_resources.insert(ResourceType::CuprumDeposits, 50.0);
+        current_resources.insert(ResourceType::Power, 100.0);
 
         Self {
             current_resources,
@@ -130,12 +156,42 @@ fn game_tick_system(
     storage_silos: Query<&StorageSilo>,
     extractors: Query<&Extractor>,
     bio_domes: Query<&BioDome>,
+    research_institutes: Query<&ResearchInstitute>,
+    fabricators: Query<&Fabricator>, // Added Fabricator query
 ) {
-    let power_gen: u32 = power_relays.iter().map(|pr| pr.power_output).sum();
-    let power_con: u32 = extractors.iter().map(|e| e.power_required).sum::<u32>() + bio_domes.iter().map(|b| b.power_required).sum::<u32>();
-    
-    if power_gen >= power_con {
-        let capacity = storage_silos.iter().map(|s| s.capacity).sum::<u32>() as f32;
+    let total_power_generation: u32 = power_relays.iter().map(|pr| pr.power_output).sum();
+    let mut total_power_consumption: u32 = extractors.iter().map(|e| e.power_consumption).sum::<u32>()
+        + bio_domes.iter().map(|b| b.power_consumption).sum::<u32>()
+        + research_institutes.iter().map(|ri| ri.power_consumption).sum::<u32>()
+        + fabricators.iter().map(|f| f.power_consumption).sum::<u32>(); // Added Fabricator power consumption
+    // Note: ProcessingPlant power consumption will be added if/when it has active processing.
+
+    let net_power = total_power_generation as f32 - total_power_consumption as f32;
+    let stored_power_entry = game_state.current_resources.entry(ResourceType::Power).or_insert(0.0);
+    *stored_power_entry = (*stored_power_entry + net_power).max(0.0); // Ensure stored power doesn't go below zero
+
+    let mut has_sufficient_power = false;
+
+    if total_power_generation >= total_power_consumption {
+        has_sufficient_power = true;
+    } else {
+        let power_deficit = total_power_consumption - total_power_generation;
+        let current_stored_power = *game_state.current_resources.get(&ResourceType::Power).unwrap_or(&0.0);
+
+        if current_stored_power >= power_deficit as f32 {
+            has_sufficient_power = true;
+            *game_state.current_resources.entry(ResourceType::Power).or_insert(0.0) -= power_deficit as f32;
+        } else {
+            has_sufficient_power = false;
+            // Optional: Set stored power to 0 if partially consumed.
+            // For now, we'll let the earlier max(0.0) handle ensuring it's not negative.
+            // If we want to ensure it's fully depleted if deficit is greater:
+            *game_state.current_resources.entry(ResourceType::Power).or_insert(0.0) = 0.0;
+        }
+    }
+
+    if has_sufficient_power {
+        let capacity = storage_silos.iter().map(|s| s.capacity).sum::<u32>() as f32; // Consider if capacity should be per resource type
         for dome in &bio_domes {
             let amount = game_state.current_resources.entry(ResourceType::NutrientPaste).or_insert(0.0);
             *amount = (*amount + dome.production_rate).min(capacity);
@@ -143,6 +199,25 @@ fn game_tick_system(
         for extractor in &extractors {
             let amount = game_state.current_resources.entry(extractor.resource_type).or_insert(0.0);
             *amount = (*amount + extractor.extraction_rate).min(capacity);
+        }
+
+        // Fabricator Logic
+        for fabricator in &fabricators {
+            // Check for sufficient input resources
+            let current_input_val_entry = game_state.current_resources.entry(fabricator.input_resource);
+            let current_input_val = *current_input_val_entry.or_insert(0.0);
+
+            let required_input_amount = fabricator.input_amount * fabricator.conversion_rate;
+
+            if current_input_val >= required_input_amount {
+                // Consume input resources
+                *game_state.current_resources.entry(fabricator.input_resource).or_insert(0.0) -= required_input_amount;
+
+                // Produce output resources
+                let current_output_val = game_state.current_resources.entry(fabricator.output_resource).or_insert(0.0);
+                *current_output_val += fabricator.output_amount * fabricator.conversion_rate;
+                *current_output_val = (*current_output_val).min(capacity); // Apply storage capacity limit
+            }
         }
     }
 }

@@ -91,6 +91,7 @@ fn setup_ui(mut commands: Commands) {
             parent.spawn((TextBundle::from_section("Power:", TextStyle { font_size: 20.0, ..default() }), PowerText));
             parent.spawn((TextBundle::from_section("Nutrient Paste:", TextStyle { font_size: 20.0, ..default() }).with_style(Style { margin: UiRect { left: Val::Px(20.0), ..default() }, ..default() }), ResourceText(ResourceType::NutrientPaste)));
             parent.spawn((TextBundle::from_section("Ferrocrete Ore:", TextStyle { font_size: 20.0, ..default() }).with_style(Style { margin: UiRect { left: Val::Px(20.0), ..default() }, ..default() }), ResourceText(ResourceType::FerrocreteOre)));
+            // TODO: Add UI elements for new resources like CuprumDeposits and display current stored Power resource.
             parent.spawn((TextBundle::from_section("Housing:", TextStyle { font_size: 20.0, color: HOUSING_COLOR, ..default() }).with_style(Style { margin: UiRect { left: Val::Px(40.0), ..default() }, ..default() }), ColonyStatText(StatType::Housing)));
             parent.spawn((TextBundle::from_section("Jobs:", TextStyle { font_size: 20.0, color: JOBS_COLOR, ..default() }).with_style(Style { margin: UiRect { left: Val::Px(20.0), ..default() }, ..default() }), ColonyStatText(StatType::Jobs)));
             parent.spawn((TextBundle::from_section("Health:", TextStyle { font_size: 20.0, color: HEALTH_COLOR, ..default() }).with_style(Style { margin: UiRect { left: Val::Px(20.0), ..default() }, ..default() }), ColonyStatText(StatType::Health)));
@@ -118,6 +119,7 @@ fn setup_ui(mut commands: Commands) {
                     let buildings = [
                         BuildingType::BioDome, BuildingType::Extractor, BuildingType::PowerRelay,
                         BuildingType::StorageSilo, BuildingType::ResearchInstitute,
+                        // TODO: Add UI buttons for new buildings: Fabricator, ProcessingPlant.
                         BuildingType::BasicDwelling, BuildingType::WellnessPost, BuildingType::SecurityStation,
                     ];
                     for building_type in buildings {
@@ -128,12 +130,14 @@ fn setup_ui(mut commands: Commands) {
             
             parent.spawn(NodeBundle { style: Style { align_items: AlignItems::Center, justify_content: JustifyContent::FlexEnd, flex_direction: FlexDirection::Row, ..default() }, ..default() })
                 .with_children(|parent| {
+                    // TODO: Add UI buttons for new research like EfficientExtraction.
                     parent.spawn((ButtonBundle { style: Style { padding: UiRect::all(Val::Px(8.)), margin: UiRect::horizontal(Val::Px(5.)), ..default() }, background_color: NORMAL_BUTTON.into(), ..default() }, ResearchButton(Tech::BasicConstructionProtocols)))
                             .with_children(|p| { p.spawn(TextBundle::from_section("Research Basic Construction", TextStyle { font_size: 16.0, ..default() })); });
                     parent.spawn((TextBundle::from_section("Welcome!", TextStyle { font_size: 20.0, ..default() }).with_style(Style{margin: UiRect::left(Val::Px(20.0)), ..default()}), MessageText));
                 });
         });
     });
+    // TODO: Spawn initial entities, e.g., a starting Operations Hub, some initial PowerRelays or a small amount of stored Power if not covered by GameState::default().
 }
 
 // NEW: This system uses Gizmos to draw the graph, avoiding UI conflicts.
@@ -207,15 +211,19 @@ fn button_interaction_system(
                 if costs.iter().all(|(res, &cost)| game_state.current_resources.get(res).unwrap_or(&0.0) >= &cost) {
                     for (res, cost) in &costs { *game_state.current_resources.get_mut(res).unwrap() -= cost; }
                     log.message = format!("Construction started: {:?}", building_type);
+                    // TODO: Add entity spawning logic for Fabricator and ProcessingPlant.
                     match building_type {
-                        BuildingType::BioDome => { commands.spawn(BioDome { power_required: 10, production_rate: 5.0 }); }
-                        BuildingType::Extractor => { commands.spawn(Extractor { power_required: 15, resource_type: ResourceType::FerrocreteOre, extraction_rate: 2.5 }); }
+                        BuildingType::BioDome => { commands.spawn(BioDome { power_consumption: 10, production_rate: 5.0 }); }
+                        BuildingType::Extractor => { commands.spawn(Extractor { power_consumption: 15, resource_type: ResourceType::FerrocreteOre, extraction_rate: 2.5 }); }
                         BuildingType::PowerRelay => { commands.spawn(PowerRelay { power_output: 50 }); }
                         BuildingType::StorageSilo => { commands.spawn(StorageSilo { capacity: 1000 }); }
-                        BuildingType::ResearchInstitute => { commands.spawn(ResearchInstitute); }
+                        BuildingType::ResearchInstitute => { commands.spawn(ResearchInstitute { power_consumption: 5 }); } // Added power_consumption
                         BuildingType::BasicDwelling => { commands.spawn(BasicDwelling { housing_capacity: 100 }); }
                         BuildingType::WellnessPost => { commands.spawn(WellnessPost { health_capacity: 50, jobs_provided: 5 }); }
                         BuildingType::SecurityStation => { commands.spawn(SecurityStation { police_capacity: 50, jobs_provided: 5 }); }
+                        // Explicitly ignore new types for now until their UI buttons and logic are added
+                        BuildingType::Fabricator => { log.message = "Fabricator construction not yet implemented.".to_string(); }
+                        BuildingType::ProcessingPlant => { log.message = "ProcessingPlant construction not yet implemented.".to_string(); }
                     }
                 } else {
                     log.message = "Not enough resources!".to_string();
@@ -247,6 +255,7 @@ fn research_button_system(
                 } else {
                     log.message = format!("Researching {:?}...", tech);
                     game_state.research_progress = Some((tech, 0.0));
+                    // TODO: Ensure new research Techs like EfficientExtraction can be selected and processed.
                 }
             }
             Interaction::Hovered => { *color = HOVERED_BUTTON.into(); }
@@ -266,18 +275,28 @@ fn update_text_display(
         Query<&mut Text, With<MessageText>>,
     )>,
     power_q: Query<&PowerRelay>,
-    extractor_q: Query<&Extractor>,
-    biodome_q: Query<&BioDome>,
+    extractor_q: Query<&Extractor>, // For power_consumption
+    biodome_q: Query<&BioDome>, // For power_consumption
+    research_institute_q: Query<&ResearchInstitute>, // For power_consumption
+    // fabricator_q: Query<&Fabricator>, // TODO: Add when Fabricator component is queryable for power
 ) {
+    // TODO: Add display for new resources like CuprumDeposits.
     for (mut text, resource_marker) in text_queries.p1().iter_mut() {
         let amount = game_state.current_resources.get(&resource_marker.0).unwrap_or(&0.0);
         text.sections[0].value = format!("{:?}: {:.1}", resource_marker.0, amount);
     }
     
+    // TODO: Update power display to show stored Power and net generation/consumption from GameState.
     let power_gen: u32 = power_q.iter().map(|p| p.power_output).sum();
-    let power_con: u32 = extractor_q.iter().map(|e| e.power_required).sum::<u32>() + biodome_q.iter().map(|b| b.power_required).sum::<u32>();
+    // TODO: Include Fabricator and other building power consumption here
+    let power_con: u32 = extractor_q.iter().map(|e| e.power_consumption).sum::<u32>()
+                       + biodome_q.iter().map(|b| b.power_consumption).sum::<u32>()
+                       + research_institute_q.iter().map(|ri| ri.power_consumption).sum::<u32>();
+    // This power display is temporary until GameState provides a central source for these values.
     for mut text in text_queries.p0().iter_mut() {
-        text.sections[0].value = format!("Power: {} / {}", power_con, power_gen);
+        let stored_power = game_state.current_resources.get(&ResourceType::Power).unwrap_or(&0.0);
+        let net = power_gen as f32 - power_con as f32;
+        text.sections[0].value = format!("Stored Power: {:.1} (Net: {:.1})", stored_power, net);
     }
 
     for (mut text, stat_marker) in text_queries.p2().iter_mut() {
