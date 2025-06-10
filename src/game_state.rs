@@ -659,8 +659,7 @@ impl Default for GameState {
         current_resources.insert(ResourceType::RawXylos, 0.0); // Typically starts at 0 until unlocked
         current_resources.insert(ResourceType::RawQuantium, 0.0);
 
-
-        Self {
+        let mut new_state = Self {
             administrative_spire: None,
             current_development_phase: DevelopmentPhase::default(),
             current_resources,
@@ -693,7 +692,7 @@ impl Default for GameState {
             total_generated_power: 0.0,
             total_consumed_power: 0.0,
             // Notifications
-            notifications: VecDeque::new(),
+            notifications: VecDeque::new(), // Ensure this is initialized
         };
 
         // Add initial test notifications

@@ -74,7 +74,7 @@ struct ResearchPanel;
 #[derive(Component)] // Marker for App Drawer buttons
 struct AppDrawerButton(AppType);
 
-use crate::game_state::{BuildingType as GameBuildingType, Tech, DevelopmentPhase, GameState, ALL_BUILDING_TYPES}; // Renamed to avoid conflict
+use crate::game_state::{BuildingType as GameBuildingType, DevelopmentPhase, ALL_BUILDING_TYPES}; // Renamed to avoid conflict
 use std::collections::HashMap;
 
 // Define BuildingMetadata and its getter function
@@ -261,7 +261,7 @@ fn setup_ui(mut commands: Commands) {
             }
             
             // Colony Happiness (ensure this is at the end or use justify_content on parent if more items are added to push it right)
-            parent.spawn((TextBundle::from_section("😐 0%", TextStyle { font_size: 18.0, color: Color::YELLOW, ..default() }).with_style(Style { margin: UiRect { left: Val::Px(15.0) }, ..default() }), ColonyHappinessText));
+            parent.spawn((TextBundle::from_section("😐 0%", TextStyle { font_size: 18.0, color: Color::YELLOW, ..default() }).with_style(Style { margin: UiRect { left: Val::Px(15.0), right: Val::Px(0.0), top: Val::Px(0.0), bottom: Val::Px(0.0) }, ..default() }), ColonyHappinessText));
         });
 
         // --- New Middle Area (App Drawer + Colony Viewport) ---
@@ -432,9 +432,9 @@ fn setup_ui(mut commands: Commands) {
                                 flex_grow: 1.0, // Takes remaining vertical space
                                 flex_direction: FlexDirection::Column, // Items will list vertically
                                 padding: UiRect::all(Val::Px(5.0)),
-                                background_color: Color::rgba(0.0, 0.0, 0.0, 0.2).into(),
                                 ..default()
                             },
+                            background_color: Color::rgba(0.0, 0.0, 0.0, 0.2).into(),
                             ..default()
                         },
                         ConstructionItemListPanel,
@@ -449,9 +449,9 @@ fn setup_ui(mut commands: Commands) {
                                 width: Val::Percent(100.0),
                                 height: Val::Px(100.0), // Fixed height for now
                                 padding: UiRect::all(Val::Px(5.0)),
-                                background_color: Color::rgba(0.0, 0.0, 0.0, 0.4).into(),
                                 ..default()
                             },
+                            background_color: Color::rgba(0.0, 0.0, 0.0, 0.4).into(),
                             ..default()
                         },
                         ConstructionItemDetailsPanel,
@@ -1125,7 +1125,7 @@ fn update_dashboard_notifications_system(
         if let Ok(panel_entity) = notifications_panel_query.get_single() {
             // Despawn all existing children of the notification panel.
             // This is simpler and usually preferred for dynamically populated UI lists.
-            commands.entity(panel_entity).despawn_children();
+            commands.entity(panel_entity).despawn_descendants();
 
             // Spawn new notifications
             for event in game_state.notifications.iter().take(10) { // Show latest 10
@@ -1145,41 +1145,36 @@ fn update_dashboard_notifications_system(
 const ACTIVE_BUTTON_COLOR: Color = Color::rgb(0.2, 0.5, 0.2); // Greenish for active app
 const ACTIVE_CONSTRUCTION_TAB_COLOR: Color = Color::rgb(0.2, 0.5, 0.2); // Similar active color for construction tabs
 
-
 fn construction_category_tab_system(
-    mut interaction_query: Query<(&Interaction, &ConstructionCategoryTab, &mut BackgroundColor), (Changed<Interaction>, With<Button>)>,
     mut current_category: ResMut<CurrentConstructionCategory>,
-    all_category_tabs_query: Query<(&ConstructionCategoryTab, &mut BackgroundColor), With<Button>>,
+    mut button_query: Query<(&Interaction, &ConstructionCategoryTab, &mut BackgroundColor), With<Button>>,
 ) {
-    // Reset all tabs first
-    for (tab, mut bg_color) in all_category_tabs_query.iter() {
+    for (interaction, tab, mut bg_color) in button_query.iter_mut() {
+        // Determine base color based on whether this tab is the current category
         if tab.0 == current_category.0 {
             *bg_color = ACTIVE_CONSTRUCTION_TAB_COLOR.into();
         } else {
             *bg_color = NORMAL_BUTTON.into();
         }
-    }
 
-    for (interaction, tab, mut bg_color) in &mut interaction_query {
+        // Apply interaction effects on top of the base color
         match *interaction {
             Interaction::Pressed => {
                 *bg_color = PRESSED_BUTTON.into();
+                // If pressed, update the current category resource
                 if current_category.0 != tab.0 {
                     current_category.0 = tab.0;
                     println!("Switched to construction category: {:?}", current_category.0);
                 }
             }
             Interaction::Hovered => {
+                // Only apply hover effect if it's not the currently active tab
                 if tab.0 != current_category.0 {
                     *bg_color = HOVERED_BUTTON.into();
                 }
             }
             Interaction::None => {
-                 if tab.0 == current_category.0 {
-                    *bg_color = ACTIVE_CONSTRUCTION_TAB_COLOR.into();
-                } else {
-                    *bg_color = NORMAL_BUTTON.into();
-                }
+                // The base color (active or normal) is already set, so nothing to do for None.
             }
         }
     }
@@ -1198,7 +1193,7 @@ fn update_construction_list_system(
 
     if current_category.is_changed() || (current_app.is_changed() && current_app.0 == AppType::Construction) {
         if let Ok(panel_entity) = item_list_panel_query.get_single_mut() {
-            commands.entity(panel_entity).despawn_children(); 
+            commands.entity(panel_entity).despawn_descendants(); 
 
             let building_meta_map = get_building_metadata();
             // Iterate over ALL_BUILDING_TYPES from game_state.rs
@@ -1253,7 +1248,7 @@ fn update_construction_list_system(
 }
 
 fn check_affordability(game_state: &Res<GameState>, building_type: GameBuildingType) -> (bool, bool) {
-    let mut can_afford_credits = true; 
+    let can_afford_credits = true; 
     let mut can_afford_materials = true;
 
     // For GameState-managed buildings, their `add_...` functions typically handle credit costs.
@@ -1302,53 +1297,48 @@ fn check_affordability(game_state: &Res<GameState>, building_type: GameBuildingT
 }
 
 fn construction_item_interaction_system(
-    mut interaction_query: Query<(&Interaction, &ConstructionItemButton, &mut BackgroundColor), (Changed<Interaction>, With<Button>)>,
     mut selected_building_res: ResMut<SelectedBuilding>,
-    game_state: Res<GameState>, 
-    // Query all construction item buttons to update their colors based on selection state
-    mut all_item_buttons_query: Query<(&ConstructionItemButton, &mut BackgroundColor), With<Button>>,
+    game_state: Res<GameState>, // Ensure game_state is passed as Res<GameState>
+    mut button_query: Query<(&Interaction, &ConstructionItemButton, &mut BackgroundColor), With<Button>>,
 ) {
-    // Update all buttons first based on current selection and affordability
-    for (item_button, mut bg_color) in &mut all_item_buttons_query {
+    for (interaction, item_button, mut bg_color) in button_query.iter_mut() {
         let building_type = item_button.0;
-        let (can_afford_credits, can_afford_materials) = check_affordability(&game_state, building_type);
         let is_selected = selected_building_res.0 == Some(building_type);
 
+        // 1. Determine base color
         if is_selected {
             *bg_color = Color::rgb(0.2, 0.6, 0.2).into(); // Selected color
-        } else if can_afford_credits && can_afford_materials {
-            *bg_color = NORMAL_BUTTON.into();
         } else {
-            *bg_color = Color::rgba(0.5, 0.15, 0.15, 0.8).into(); // Unaffordable color
+            // Ensure check_affordability is correctly called.
+            // It was defined as: check_affordability(game_state: &Res<GameState>, building_type: GameBuildingType)
+            let (can_afford_credits, can_afford_materials) = check_affordability(&game_state, building_type);
+            if can_afford_credits && can_afford_materials {
+                *bg_color = NORMAL_BUTTON.into();
+            } else {
+                *bg_color = Color::rgba(0.5, 0.15, 0.15, 0.8).into(); // Unaffordable color
+            }
         }
-    }
 
-    // Then handle specific interactions
-    for (interaction, item_button, mut bg_color) in &mut interaction_query {
-        let building_type = item_button.0;
-        let is_selected = selected_building_res.0 == Some(building_type);
-
+        // 2. Apply interaction effects on top of the base color
         match *interaction {
             Interaction::Pressed => {
-                // The color will be updated by the loop above in the next frame based on selection.
-                // For immediate feedback on press:
-                *bg_color = PRESSED_BUTTON.into(); 
+                *bg_color = PRESSED_BUTTON.into(); // Set pressed color
                 if is_selected {
                     selected_building_res.0 = None; // Deselect if clicked again
-                    println!("Deselected building: {:?}", building_type);
+                    // println!("Deselected building: {:?}", building_type); // Keep for debugging if desired
                 } else {
                     selected_building_res.0 = Some(building_type);
-                    println!("Selected building: {:?}", building_type);
+                    // println!("Selected building: {:?}", building_type); // Keep for debugging if desired
                 }
             }
             Interaction::Hovered => {
-                // Only apply hover color if it's not the active selected button
+                // Only apply hover effect if it's not the currently selected button
                 if !is_selected {
                     *bg_color = HOVERED_BUTTON.into();
                 }
             }
             Interaction::None => {
-                // The loop at the beginning handles the final color for non-hovered states
+                // Base color (selected, normal, or unaffordable) is already set.
             }
         }
     }
@@ -1365,7 +1355,7 @@ fn update_construction_details_panel_system(
     }
 
     if let Ok(details_panel_entity) = details_panel_query.get_single_mut() {
-        commands.entity(details_panel_entity).despawn_children();
+        commands.entity(details_panel_entity).despawn_descendants();
         let building_meta_map = get_building_metadata();
 
         if let Some(building_type) = selected_building.0 {
@@ -1375,26 +1365,26 @@ fn update_construction_details_panel_system(
                     parent.spawn(TextBundle::from_section("A standard construction offering from Nexus Core.", TextStyle { font_size: 16.0, ..default() }).with_style(Style{ margin: UiRect::bottom(Val::Px(8.0)), ..default()}));
                     
                     parent.spawn(TextBundle::from_section("Costs:", TextStyle { font_size: 18.0, ..default() }).with_style(Style{ margin: UiRect::bottom(Val::Px(3.0)), ..default()}));
-                    parent.spawn(TextBundle::from_section(" - Credits: Varies (see build action)", TextStyle { font_size: 16.0, ..default() }).with_style(Style{ margin: UiRect { left: Val::Px(10.0), bottom: Val::Px(2.0) }, ..default()}));
+                    parent.spawn(TextBundle::from_section(" - Credits: Varies (see build action)", TextStyle { font_size: 16.0, ..default() }).with_style(Style{ margin: UiRect { left: Val::Px(10.0), bottom: Val::Px(2.0), right: Val::Px(0.0), top: Val::Px(0.0) }, ..default()}));
                     if let Some(material_costs) = game_state.building_costs.get(&building_type) {
                         if material_costs.is_empty() { 
-                            parent.spawn(TextBundle::from_section(" - Materials: None", TextStyle { font_size: 16.0, ..default() }).with_style(Style{ margin: UiRect { left: Val::Px(10.0), bottom: Val::Px(2.0) }, ..default()}));
+                            parent.spawn(TextBundle::from_section(" - Materials: None", TextStyle { font_size: 16.0, ..default() }).with_style(Style{ margin: UiRect { left: Val::Px(10.0), bottom: Val::Px(2.0), right: Val::Px(0.0), top: Val::Px(0.0) }, ..default()}));
                         }
                         for (res, amount) in material_costs { 
-                            parent.spawn(TextBundle::from_section(format!(" - {:?}: {}", res, amount), TextStyle { font_size: 16.0, ..default() }).with_style(Style{ margin: UiRect { left: Val::Px(10.0), bottom: Val::Px(2.0) }, ..default()})); 
+                            parent.spawn(TextBundle::from_section(format!(" - {:?}: {}", res, amount), TextStyle { font_size: 16.0, ..default() }).with_style(Style{ margin: UiRect { left: Val::Px(10.0), bottom: Val::Px(2.0), right: Val::Px(0.0), top: Val::Px(0.0) }, ..default()})); 
                         }
                     } else { 
-                        parent.spawn(TextBundle::from_section(" - Materials: None specified", TextStyle { font_size: 16.0, ..default() }).with_style(Style{ margin: UiRect { left: Val::Px(10.0), bottom: Val::Px(2.0) }, ..default()}));
+                        parent.spawn(TextBundle::from_section(" - Materials: None specified", TextStyle { font_size: 16.0, ..default() }).with_style(Style{ margin: UiRect { left: Val::Px(10.0), bottom: Val::Px(2.0), right: Val::Px(0.0), top: Val::Px(0.0) }, ..default()}));
                     }
 
-                    parent.spawn(TextBundle::from_section("Requirements:", TextStyle { font_size: 18.0, ..default() }).with_style(Style{ margin: UiRect { top: Val::Px(8.0), bottom: Val::Px(3.0) }, ..default()}));
+                    parent.spawn(TextBundle::from_section("Requirements:", TextStyle { font_size: 18.0, ..default() }).with_style(Style{ margin: UiRect { top: Val::Px(8.0), bottom: Val::Px(3.0), left: Val::Px(0.0), right: Val::Px(0.0) }, ..default()}));
                     if let Some(tech) = meta.required_tech { 
-                        parent.spawn(TextBundle::from_section(format!(" - Tech: {:?}", tech), TextStyle { font_size: 16.0, ..default() }).with_style(Style{ margin: UiRect { left: Val::Px(10.0), bottom: Val::Px(2.0) }, ..default()}));
+                        parent.spawn(TextBundle::from_section(format!(" - Tech: {:?}", tech), TextStyle { font_size: 16.0, ..default() }).with_style(Style{ margin: UiRect { left: Val::Px(10.0), bottom: Val::Px(2.0), right: Val::Px(0.0), top: Val::Px(0.0) }, ..default()}));
                     } else { 
-                        parent.spawn(TextBundle::from_section(" - Tech: None", TextStyle { font_size: 16.0, ..default() }).with_style(Style{ margin: UiRect { left: Val::Px(10.0), bottom: Val::Px(2.0) }, ..default()}));
+                        parent.spawn(TextBundle::from_section(" - Tech: None", TextStyle { font_size: 16.0, ..default() }).with_style(Style{ margin: UiRect { left: Val::Px(10.0), bottom: Val::Px(2.0), right: Val::Px(0.0), top: Val::Px(0.0) }, ..default()}));
                     }
                     if let Some(dp) = meta.required_dp { 
-                        parent.spawn(TextBundle::from_section(format!(" - Min. DP: {:?}", dp), TextStyle { font_size: 16.0, ..default() }).with_style(Style{ margin: UiRect { left: Val::Px(10.0), bottom: Val::Px(2.0) }, ..default()}));
+                        parent.spawn(TextBundle::from_section(format!(" - Min. DP: {:?}", dp), TextStyle { font_size: 16.0, ..default() }).with_style(Style{ margin: UiRect { left: Val::Px(10.0), bottom: Val::Px(2.0), right: Val::Px(0.0), top: Val::Px(0.0) }, ..default()}));
                     }
 
                     parent.spawn((
@@ -1452,9 +1442,18 @@ fn construction_interaction_system(
                 return;
             }
 
-            if let Some(material_costs) = game_state.building_costs.get(&building_type) {
-                for (res, cost) in material_costs {
-                    *game_state.current_resources.get_mut(res).unwrap() -= cost;
+            // Deduct material costs
+            let costs_to_deduct: Option<Vec<(ResourceType, f32)>> = 
+                game_state.building_costs.get(&building_type)
+                .map(|costs_map| {
+                    costs_map.iter().map(|(res_type, val)| (*res_type, *val)).collect()
+                });
+
+            if let Some(actual_costs) = costs_to_deduct {
+                for (res, cost_val) in actual_costs {
+                    if let Some(current_res_val) = game_state.current_resources.get_mut(&res) {
+                        *current_res_val -= cost_val;
+                    }
                 }
             }
             
@@ -1482,50 +1481,36 @@ fn construction_interaction_system(
 }
 
 fn app_drawer_button_system(
-    mut interaction_query: Query<(&Interaction, &AppDrawerButton, &mut BackgroundColor), (Changed<Interaction>, With<Button>)>,
     mut current_app_res: ResMut<CurrentApp>,
-    all_app_buttons_query: Query<(&AppDrawerButton, &mut BackgroundColor), With<Button>>, // Query all buttons to reset non-active ones
+    mut button_query: Query<(&Interaction, &AppDrawerButton, &mut BackgroundColor), With<Button>>,
 ) {
-    // First, reset all buttons to normal or active state based on current_app_res
-    // This is needed because interactions only trigger for the button being interacted with.
-    // We need to reflect the global CurrentApp state on all buttons.
-    // This part runs every time there's an interaction, but it's okay for a few buttons.
-    // A more complex solution might use events or only update when current_app_res changes.
-    for (app_button, mut bg_color) in all_app_buttons_query.iter() {
+    for (interaction, app_button, mut bg_color) in button_query.iter_mut() {
+        // Determine base color based on whether this button is the current app
         if app_button.0 == current_app_res.0 {
             *bg_color = ACTIVE_BUTTON_COLOR.into();
         } else {
             *bg_color = NORMAL_BUTTON.into();
         }
-    }
 
-    for (interaction, app_button, mut bg_color) in &mut interaction_query {
+        // Apply interaction effects on top of the base color
         match *interaction {
             Interaction::Pressed => {
-                *bg_color = PRESSED_BUTTON.into(); // Temporary pressed color
+                *bg_color = PRESSED_BUTTON.into();
+                // If pressed, update the current app resource
+                // This might trigger a color change in the next frame/iteration due to the logic above
                 if current_app_res.0 != app_button.0 {
                     current_app_res.0 = app_button.0;
                     println!("Switched to app: {:?}", current_app_res.0);
-                    // After switching, the loop above (or a separate system reacting to CurrentApp change)
-                    // will set the correct active/normal colors.
-                    // For immediate feedback, we can set it here too, but the loop above handles the general case.
-                    // *bg_color = ACTIVE_BUTTON_COLOR.into(); // Set this button to active
                 }
             }
             Interaction::Hovered => {
-                // Only apply hover color if it's not the active button
+                // Only apply hover effect if it's not the currently active button
                 if app_button.0 != current_app_res.0 {
                     *bg_color = HOVERED_BUTTON.into();
                 }
             }
             Interaction::None => {
-                // This is handled by the loop at the beginning of the system
-                // which sets active or normal based on current_app_res.0
-                if app_button.0 == current_app_res.0 {
-                     *bg_color = ACTIVE_BUTTON_COLOR.into();
-                } else {
-                    *bg_color = NORMAL_BUTTON.into();
-                }
+                // The base color (active or normal) is already set, so nothing to do for None.
             }
         }
     }
