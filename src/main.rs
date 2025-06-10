@@ -904,13 +904,15 @@ fn update_text_display(
 }
 
 fn admin_spire_button_system(
-    mut construct_interaction_query: Query<(&Interaction, &mut BackgroundColor), (Changed<Interaction>, With<ConstructSpireButton>)>,
-    mut upgrade_interaction_query: Query<(&Interaction, &mut BackgroundColor), (Changed<Interaction>, With<UpgradeSpireButton>)>,
+    mut button_queries: ParamSet<(
+        Query<(&Interaction, &mut BackgroundColor), (Changed<Interaction>, With<ConstructSpireButton>)>,
+        Query<(&Interaction, &mut BackgroundColor), (Changed<Interaction>, With<UpgradeSpireButton>)>,
+    )>,
     mut game_state: ResMut<GameState>,
     mut log: ResMut<MessageLog>,
 ) {
     // Handle Construct Spire Button
-    for (interaction, mut color) in &mut construct_interaction_query {
+    for (interaction, mut color) in &mut button_queries.p0() {
         match *interaction {
             Interaction::Pressed => {
                 *color = PRESSED_BUTTON.into();
@@ -943,7 +945,7 @@ fn admin_spire_button_system(
     }
 
     // Handle Upgrade Spire Button
-    for (interaction, mut color) in &mut upgrade_interaction_query {
+    for (interaction, mut color) in &mut button_queries.p1() {
         match *interaction {
             Interaction::Pressed => {
                 *color = PRESSED_BUTTON.into();

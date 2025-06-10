@@ -1,3 +1,19 @@
+Sixth update
+
+Fix: Resolve BackgroundColor conflict in admin_spire_button_system
+
+I refactored `admin_spire_button_system` to use `ParamSet` for handling
+queries related to `ConstructSpireButton` and `UpgradeSpireButton`.
+This change addresses a runtime panic caused by conflicting mutable
+access to the `BackgroundColor` component by these two queries.
+
+The system now correctly uses `button_queries.p0()` and
+`button_queries.p1()` to access the respective queries, ensuring
+safe and conflict-free component access as per Bevy's ECS rules.
+This solution was guided by the diagnostic error message and the
+recommendation in the EditLog.txt.
+
+
 fifth update
 
 feat: Implement extensive UI enhancements and display existing backend data
