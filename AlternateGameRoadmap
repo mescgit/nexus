@@ -1,0 +1,243 @@
+Development Roadmap: Aegis Command
+
+This roadmap outlines the phased development of Aegis Command, a solo-player, idle/incremental city-management game built in Rust. The player assumes the role of a planetary administrator, managing their burgeoning colony through a tablet interface, balancing resource production, population needs, and technological advancement to build a thriving metropolis.
+Phase 0: Foundation & Core Concepts
+
+This phase is about setting up the project and defining the core architecture before writing game logic.
+
+1. Thematic Identity & Renaming:
+
+    Game Name: Aegis Command (Placeholder)
+
+    Player Role: Administrator, Governor, Warden.
+
+    Citizens: Settlers, Colonists, Wards.
+
+    Currency: Credits (Cr), Sols, Units.
+
+    Resources: Rename raw materials to avoid direct association.
+
+        Iron -> Ferrite
+
+        Rock -> Silicates
+
+        Oil -> Hydrocarbons
+
+        Uranium -> Fissiles
+
+        Larium -> Larimite
+
+        Bounatium -> Boranite, etc.
+
+    UI Concept: Finalize the "Administrator's Tablet" concept. The game interface is this tablet. Different management screens are "apps" on the tablet's home screen.
+
+2. Tech Stack (Rust):
+
+    Game Engine:
+
+        Option A (Full-Featured): Bevy Engine. Excellent for handling the game loop, state management, and rendering. It's modular and has a growing ecosystem.
+
+        Option B (Lightweight): Use a minimal framework like Macroquad or build a custom loop with a windowing library like Winit.
+
+    UI Library:
+
+        Egui is a fantastic choice. It integrates well with Bevy and is perfect for creating the data-heavy, graph-oriented "tablet" interface you envision.
+
+    Data Serialization:
+
+        Use Serde for saving/loading game state.
+
+3. Core Data Structures:
+
+    Define the primary structs in Rust:
+
+        GameState: A master struct holding everything.
+
+        Resources: A struct or HashMap<ResourceType, f64> to store player's resources.
+
+        Building: A base trait or struct with common fields (name, level, cost) and specific structs for each building type (e.g., Mine, HabitationPod).
+
+        Population: A struct to manage total population, housing capacity, employment, and growth modifiers.
+
+        GameTime: A struct to manage the global game clock and tick progression.
+
+Phase 1: The Core Idle Loop
+
+The goal here is to create the fundamental "number goes up" loop.
+
+1. Game Time & Tick System:
+
+    Implement a global clock that advances time. A "tick" can represent a second or another interval.
+
+    On each tick, fire off events for resource generation, consumption, etc.
+
+2. Resource Generation:
+
+    Implement the first building: Crystal Extractor (replaces Mine).
+
+    Create an abstracted resource system. No map is needed.
+
+        RatePerExtractor = BaseRate * Level
+
+        TotalRate = NumExtractors * RatePerExtractor
+
+    Exponential Costs: Implement the upgrade/build cost formula: Cost(N) = BaseCost * GrowthFactor^(N-1), where N is the number of buildings of that type.
+
+3. UI - The "Resources" App:
+
+    Create the first screen on the tablet: a simple view showing current resource stockpiles and generation rates (+X/sec).
+
+    Add a button to "Build Crystal Extractor," which shows the cost and increments the building count.
+
+Phase 2: Population & Sustenance
+
+Introduce the core dependency: people. This creates the first major strategic choice.
+
+1. Population & Housing:
+
+    Introduce Settlers as a resource.
+
+    Create the first housing building: Habitation Pod. Each pod adds to the HousingCapacity.
+
+    Population grows slowly over time, but only if CurrentPopulation < HousingCapacity.
+
+2. Food & Farming:
+
+    Introduce Food as a critical resource.
+
+    Create the Hydroponics Farm building. Each farm generates Food per second.
+
+    Implement Food Consumption: FoodConsumption = CurrentPopulation * FoodPerPerson.
+
+    If Food Stored <= 0, population growth stops and happiness plummets (Phase 4).
+
+3. UI - "Population" & "Farms" Apps:
+
+    Update the UI to show Population / Housing Capacity.
+
+    Add a new tab/app for building Farms.
+
+    The main dashboard should now show Food / Consumption Rate.
+
+Player Challenge: The player must now balance building Extractors (for construction resources) with Farms (for food) and Hab-Pods (for population growth).
+Phase 3: Administrative Hub & Data Visualization
+
+Flesh out the UI concept and provide the player with the tools to manage complexity.
+
+1. The Command Center:
+
+    Introduce the Command Center building (replaces Base/City Hall). This building is the hub; its level unlocks new tech tiers and building types.
+
+    The main UI is now themed as the Command Center's interface.
+
+2. UI - The Tablet Homescreen:
+
+    Design a "homescreen" with icons for different "apps":
+
+        Dashboard: Key metrics (Pop, Food, Resources, Happiness).
+
+        Buildings: A scrollable list of all available buildings to construct.
+
+        Population: Detailed stats on growth, housing, employment.
+
+        Research: The tech tree (Phase 5).
+
+        Finances: Credits and upkeep (Phase 6).
+
+3. Data Visualization:
+
+    Integrate a plotting library with Egui (e.g., egui_plot).
+
+    On the Dashboard, add the first line charts: Resources over Time and Population over Time. This is crucial for the player to understand trends and balance their economy.
+
+Phase 4: City Services & Happiness
+
+Introduce the core city-management simulation loop.
+
+1. Happiness Metric:
+
+    Implement a global Happiness score (0-100%). This metric directly affects population growth rate. High happiness = growth bonus; low happiness = growth penalty or even population decline.
+
+2. Service Buildings:
+
+    Implement the first tier of service buildings. Each provides "coverage" for a certain number of people.
+
+        Security: Enforcement Hub (influences 20,000 people).
+
+        Healthcare: Medi-Bay (influences 20,000 people).
+
+        Entertainment: Rec-Lounge (influences 20,000 people).
+
+    Happiness Formula: Happiness is calculated based on service fulfillment.
+
+        HealthCoverage = TotalHealthCoverage / CurrentPopulation
+
+        If HealthCoverage < 1, apply a happiness penalty. Do this for all services.
+
+        Food shortage should cause a massive happiness penalty.
+
+3. UI - "Civics" App:
+
+    Create a new app showing the Happiness score.
+
+    Provide a detailed breakdown: "Health: 100% Coverage", "Security: 75% Coverage (Penalty!)", "Food: Surplus (Bonus!)". This tells the player exactly what to fix.
+
+Phase 5: Technology & Progression
+
+Gate progress behind a research system, encouraging long-term planning.
+
+1. The Research Lab:
+
+    Implement the Research Lab building. Labs generate Research Points (RP) per second.
+
+    Labs may require a certain number of "worker" Settlers, introducing an employment mechanic.
+
+2. Technology Tiers:
+
+    Create a simple tech tree. Researching a node costs RP and unlocks new buildings or global bonuses.
+
+    Example: Colony Tier 2 (costs 10,000 RP) unlocks Town Center (upgraded Command Center), advanced Habitation Pods, and Tier 2 service buildings.
+
+3. UI - "Research" App:
+
+    A visual tech tree where the player can select which technology to research next. Show costs, dependencies, and rewards for each node.
+
+Phase 6: Advanced Economy & Industry
+
+Add another layer of resource management to create more depth for late-game construction.
+
+1. Industrial Buildings & Processed Goods:
+
+    Implement the Fabricator building (replaces Factory).
+
+    The Fabricator consumes raw resources (e.g., Ferrite, Silicates) and produces Components.
+
+    High-tier buildings (from Tier 2+) now require both raw resources and Components to be built.
+
+2. Credits & Upkeep:
+
+    Introduce Credits as a global currency.
+
+    Implement Commerce Hubs that generate Credits per second.
+
+    Advanced buildings now have a Credit Upkeep per second. If the player's credit balance goes negative, these buildings shut down, causing happiness penalties.
+
+Phase 7: Endgame & Prestige
+
+Provide long-term goals for players who have mastered the core loops.
+
+1. Megastructures (Wonders):
+
+    These are the ultimate endgame buildings. They should require enormous amounts of resources, Components, and a fully researched tech tree.
+
+        Stellar Mirror: +50% to all Energy generation.
+
+        Planetary Consciousness Hub: +25% to global Happiness.
+
+        Forge of Creation: +50% to all raw resource generation.
+
+2. "Prestige" / New Game+:
+
+    Once a Megastructure is built, give the player the option to "Prestige." This resets the game but provides a permanent bonus for all future playthroughs (e.g., "+10% starting resources"), encouraging replayability.
+
+This roadmap provides a structured path from a simple idle game to a complex and engaging solo-management simulation, aligning perfectly with your vision. Good luck, Administrator!
