@@ -30,8 +30,14 @@ struct MessageText;
 struct ColonyStatText(StatType);
 #[derive(Component)]
 struct CreditsText; // New marker component for Credits
+// #[derive(Component)] // Old HappinessText, replaced by ColonyHappinessText for ticker
+// struct HappinessText; // Marker component for Happiness - Keep if used elsewhere, remove if only for old ticker
 #[derive(Component)]
-struct HappinessText; // Marker component for Happiness
+struct PopulationText; // For Status Ticker
+#[derive(Component)]
+struct CoreResourceText(ResourceType); // For Status Ticker
+#[derive(Component)]
+struct ColonyHappinessText; // For Status Ticker
 #[derive(Component)]
 struct ConstructSpireButton;
 #[derive(Component)]
@@ -50,6 +56,107 @@ struct BuildZoneButton {
 }
 #[derive(Component)]
 struct GraphArea; // Marker for the graph's background node
+
+// --- App Panel Marker Components ---
+#[derive(Component)]
+struct DashboardPanel;
+#[derive(Component)]
+struct NotificationsPanel;
+#[derive(Component)]
+struct AnalyticsGraphPanel;
+#[derive(Component)]
+struct ConstructionPanel;
+#[derive(Component)]
+struct ColonyStatusPanel;
+#[derive(Component)]
+struct ResearchPanel;
+
+#[derive(Component)] // Marker for App Drawer buttons
+struct AppDrawerButton(AppType);
+
+use crate::game_state::{BuildingType as GameBuildingType, Tech, DevelopmentPhase, GameState, ALL_BUILDING_TYPES}; // Renamed to avoid conflict
+use std::collections::HashMap;
+
+// Define BuildingMetadata and its getter function
+#[derive(Clone, Copy, Debug)]
+pub struct BuildingMetadata {
+    pub name: &'static str,
+    pub category: ConstructionCategory,
+    pub required_tech: Option<Tech>,
+    pub required_dp: Option<DevelopmentPhase>, // Placeholder for now
+}
+
+fn get_building_metadata() -> HashMap<GameBuildingType, BuildingMetadata> {
+    let mut meta = HashMap::new();
+    meta.insert(GameBuildingType::Extractor, BuildingMetadata { name: "Extractor", category: ConstructionCategory::Operations, required_tech: None, required_dp: None });
+    meta.insert(GameBuildingType::BioDome, BuildingMetadata { name: "Bio-Dome", category: ConstructionCategory::Operations, required_tech: None, required_dp: None });
+    meta.insert(GameBuildingType::PowerRelay, BuildingMetadata { name: "Power Relay", category: ConstructionCategory::Operations, required_tech: None, required_dp: None });
+    meta.insert(GameBuildingType::StorageSilo, BuildingMetadata { name: "Storage Silo", category: ConstructionCategory::Operations, required_tech: Some(Tech::BasicConstructionProtocols), required_dp: None });
+    meta.insert(GameBuildingType::ResearchInstitute, BuildingMetadata { name: "Research Institute", category: ConstructionCategory::Operations, required_tech: Some(Tech::BasicConstructionProtocols), required_dp: None });
+    
+    // GameState managed buildings - costs are primarily handled by their add_... functions
+    // For this metadata, we mostly care about category and tech pre-requisites for showing them in the list.
+    // Affordability check will be simplified for them initially.
+    meta.insert(GameBuildingType::Fabricator, BuildingMetadata { name: "Fabricator", category: ConstructionCategory::Operations, required_tech: Some(Tech::BasicConstructionProtocols), required_dp: None });
+    meta.insert(GameBuildingType::ProcessingPlant, BuildingMetadata { name: "Processing Plant", category: ConstructionCategory::Operations, required_tech: Some(Tech::BasicConstructionProtocols), required_dp: None });
+
+    // Habitation category often refers to GameState managed structures
+    meta.insert(GameBuildingType::BasicDwelling, BuildingMetadata { name: "Basic Dwelling", category: ConstructionCategory::Habitation, required_tech: Some(Tech::BasicConstructionProtocols), required_dp: None });
+    // Note: WellnessPost and SecurityStation are Bevy components, not directly GameState managed structures like Habitation tiers,
+    // so their costs would ideally be in game_state.building_costs if they have material costs.
+    // For now, grouping them under Habitation for UI purposes.
+    meta.insert(GameBuildingType::WellnessPost, BuildingMetadata { name: "Wellness Post", category: ConstructionCategory::Habitation, required_tech: Some(Tech::BasicConstructionProtocols), required_dp: None });
+    meta.insert(GameBuildingType::SecurityStation, BuildingMetadata { name: "Security Station", category: ConstructionCategory::Habitation, required_tech: Some(Tech::BasicConstructionProtocols), required_dp: None });
+    
+    // Example for Legacy if any 'old' Bevy component buildings were to be listed here.
+    // meta.insert(BuildingType::LegacyStructure, BuildingMetadata { name: "Old Extractor Mk1", category: ConstructionCategory::Legacy, required_tech: None, required_dp: None });
+    meta
+}
+
+
+// --- Construction App Enums, Resources, and Components ---
+#[derive(Resource, Default, Debug)] // Added Debug
+pub struct SelectedBuilding(pub Option<GameBuildingType>);
+
+#[derive(Component)]
+struct ConfirmBuildButton(GameBuildingType);
+
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ConstructionCategory {
+    #[default]
+    Operations, // e.g. Extractors, Power Plants, Core GameState buildings
+    Habitation, // Habitation structures from game_state
+    Legacy,     // Original Bevy Component buildings (BioDome, old Extractor, etc if kept)
+}
+
+#[derive(Resource, Default)]
+pub struct CurrentConstructionCategory(pub ConstructionCategory);
+
+#[derive(Component)]
+struct ConstructionCategoryTab(ConstructionCategory);
+
+#[derive(Component)]
+struct ConstructionItemListPanel; // Panel to hold the list of buildable items
+
+#[derive(Component)]
+struct ConstructionItemButton(GameBuildingType); // For items in the list (using GameBuildingType)
+
+#[derive(Component)]
+struct ConstructionItemDetailsPanel; // Panel for selected item's details
+
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum AppType {
+    #[default]
+    Dashboard,
+    Construction,
+    ColonyStatus,
+    Research,
+}
+
+#[derive(Resource, Default)]
+pub struct CurrentApp(pub AppType);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum StatType {
@@ -97,81 +204,33 @@ pub struct UiPlugin;
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<MessageLog>()
+            .init_resource::<CurrentApp>() 
+            .init_resource::<CurrentConstructionCategory>() 
+            .init_resource::<SelectedBuilding>() // Initialize SelectedBuilding resource
             .add_systems(Startup, setup_ui)
             .add_systems(Update, (
-                button_interaction_system,
-                research_button_system,
+                app_drawer_button_system,
+                manage_app_panels_visibility, 
+                update_dashboard_notifications_system.after(manage_app_panels_visibility),
+                construction_category_tab_system, 
+                update_construction_list_system.after(construction_category_tab_system),
+                construction_item_interaction_system.after(update_construction_list_system),
+                update_construction_details_panel_system.after(construction_item_interaction_system),
+                construction_interaction_system.after(update_construction_details_panel_system), 
                 update_text_display,
-                draw_graph_gizmos, // REPLACED: draw_graph_system with a gizmo version
-                admin_spire_button_system,
-                habitation_button_system,
-                service_building_button_system,
-                zone_button_system, // Add the new system
+                draw_graph_gizmos, 
+                // Old systems fully removed
             ));
     }
 }
 
-fn habitation_button_system(
-    mut interaction_query: Query<(&Interaction, &BuildHabitationButton, &mut BackgroundColor), Changed<Interaction>>,
-    mut game_state: ResMut<GameState>,
-    mut log: ResMut<MessageLog>,
-) {
-    for (interaction, button_data, mut color) in &mut interaction_query {
-        let tier_index = button_data.0;
-        match *interaction {
-            Interaction::Pressed => {
-                *color = PRESSED_BUTTON.into();
-                
-                // Check if tech is required (assuming BasicConstructionProtocols for all for now)
-                if !game_state.unlocked_techs.contains(&Tech::BasicConstructionProtocols) {
-                    log.message = "Requires Basic Construction Protocols.".to_string();
-                    continue; 
-                }
-
-                let initial_credits = game_state.credits;
-                let initial_structure_count = game_state.habitation_structures.len();
-
-                game_state::add_habitation_structure(&mut game_state, tier_index);
-                
-                if game_state.habitation_structures.len() > initial_structure_count && game_state.credits < initial_credits {
-                    // Success if a new structure was added and credits were deducted
-                    let tier_name = game_state.habitation_structures.last()
-                        .and_then(|s| s.available_tiers.get(s.tier_index))
-                        .map_or_else(|| format!("Tier {}", tier_index), |t| t.name.clone());
-                    log.message = format!("{} constructed.", tier_name);
-                } else if game_state.credits == initial_credits && game_state.habitation_structures.len() == initial_structure_count {
-                    // Failed, likely due to cost. game_state::add_habitation_structure prints to console.
-                     let all_tiers = game_state::get_habitation_tiers(); // Fetch tiers to get cost
-                     if let Some(tier_info) = all_tiers.get(tier_index) {
-                        log.message = format!("Failed: Need {} credits for {}.", tier_info.construction_credits_cost, tier_info.name);
-                     } else {
-                        log.message = format!("Failed to build Habitation Tier {}. Check credits/console.", tier_index);
-                     }
-                } else {
-                    // Other cases or if only one condition met (e.g. structure added but no credit change - unlikely with current setup)
-                    log.message = format!("Action completed for Habitation Tier {}. Check console for details.", tier_index);
-                }
-            }
-            Interaction::Hovered => {
-                *color = HOVERED_BUTTON.into();
-                let tiers = game_state::get_habitation_tiers();
-                if let Some(tier_info) = tiers.get(tier_index) {
-                    let mut message = format!("{}: Cost {} Credits.", tier_info.name, tier_info.construction_credits_cost);
-                    if !game_state.unlocked_techs.contains(&Tech::BasicConstructionProtocols) {
-                        message.push_str(" (Req: Basic Construction Protocols)");
-                    }
-                    log.message = message;
-                } else {
-                    log.message = format!("Hovering Habitation Tier {}.", tier_index);
-                }
-            }
-            Interaction::None => { *color = NORMAL_BUTTON.into(); }
-        }
-    }
-}
+// Old button interaction systems (habitation_button_system, zone_button_system, 
+// service_building_button_system, button_interaction_system, research_button_system, admin_spire_button_system)
+// have been removed from the file. Their functionality is replaced by the new Construction App UI.
 
 #[derive(Resource, Default)]
-struct MessageLog { message: String }
+struct MessageLog { message: String } // This is still used by update_text_display for the bottom bar message.
+                                      // It will be replaced by new notification system eventually.
 
 fn setup_ui(mut commands: Commands) {
     commands.spawn(Camera2dBundle::default());
@@ -179,209 +238,250 @@ fn setup_ui(mut commands: Commands) {
         style: Style { width: Val::Percent(100.0), height: Val::Percent(100.0), flex_direction: FlexDirection::Column, justify_content: JustifyContent::SpaceBetween, ..default() }, ..default()
     }).with_children(|parent| {
         // --- Top Bar ---
+        // --- Top Bar (Status Ticker) ---
         parent.spawn(NodeBundle {
             style: Style { width: Val::Percent(100.0), padding: UiRect::all(Val::Px(10.0)), align_items: AlignItems::Center, flex_wrap: FlexWrap::Wrap, ..default() },
             background_color: Color::DARK_GRAY.into(), ..default()
         }).with_children(|parent| {
-            parent.spawn((TextBundle::from_section("Power:", TextStyle { font_size: 20.0, ..default() }), PowerText));
-            // Added CreditsText display
-            parent.spawn((
-                TextBundle::from_section(
-                    "Credits: 0", // Initial text
-                    TextStyle {
-                        font_size: 18.0, // Consistent font size
-                        color: Color::GOLD, // Distinct color for credits
-                        ..default()
-                    }
-                )
-                .with_style(Style {
-                    margin: UiRect { left: Val::Px(15.0), ..default() }, // Consistent margin
-                    ..default()
-                }),
-                CreditsText // Marker component
-            ));
-            parent.spawn((TextBundle::from_section("Nutrient Paste:", TextStyle { font_size: 20.0, ..default() }).with_style(Style { margin: UiRect { left: Val::Px(20.0), ..default() }, ..default() }), ResourceText(ResourceType::NutrientPaste)));
-            parent.spawn((TextBundle::from_section("Ferrocrete Ore:", TextStyle { font_size: 20.0, ..default() }).with_style(Style { margin: UiRect { left: Val::Px(20.0), ..default() }, ..default() }), ResourceText(ResourceType::FerrocreteOre)));
-            
-            // Spawn TextBundles for new resources
-            let new_resources_to_display = [
-                ResourceType::CuprumDeposits,
-                ResourceType::ManufacturedGoods,
-                ResourceType::AdvancedComponents,
-                ResourceType::RawXylos,
-                ResourceType::RefinedXylos,
-                ResourceType::RawQuantium,
-                ResourceType::ProcessedQuantium,
-            ];
+            // Clear old elements by not spawning them. New elements below:
 
-            for resource_type in new_resources_to_display {
-                parent.spawn((
-                    TextBundle::from_section(
-                        format!("{:?}: 0", resource_type), // Initial text
-                        TextStyle {
-                            font_size: 18.0, // Consistent font size
-                            ..default() 
-                        }
-                    )
-                    .with_style(Style {
-                        margin: UiRect { left: Val::Px(15.0), ..default() }, // Consistent margin
-                        ..default()
-                    }),
-                    ResourceText(resource_type) // Marker component
-                ));
+            // Credits
+            parent.spawn((TextBundle::from_section("Cr. 0", TextStyle { font_size: 18.0, color: Color::GOLD, ..default() }).with_style(Style { margin: UiRect { right: Val::Px(15.0), ..default() }, ..default() }), CreditsText));
+            
+            // Power
+            parent.spawn((TextBundle::from_section("Power - Net: +0 | Stored: 0/0", TextStyle { font_size: 18.0, color: Color::CYAN, ..default() }).with_style(Style { margin: UiRect { right: Val::Px(15.0), ..default() }, ..default() }), PowerText));
+            
+            // Population
+            parent.spawn((TextBundle::from_section("Inhabitants: 0 / 0", TextStyle { font_size: 18.0, color: Color::WHITE, ..default() }).with_style(Style { margin: UiRect { right: Val::Px(15.0), ..default() }, ..default() }), PopulationText));
+            
+            // Core Resources
+            let core_resources_to_display = [ResourceType::NutrientPaste, ResourceType::FerrocreteOre, ResourceType::CuprumDeposits];
+            for resource_type in core_resources_to_display {
+                parent.spawn((TextBundle::from_section(format!("{:?}: 0", resource_type), TextStyle { font_size: 18.0, color: Color::GRAY, ..default() }).with_style(Style { margin: UiRect { right: Val::Px(10.0), ..default() }, ..default() }), CoreResourceText(resource_type)));
             }
-            // TODO: Add UI elements for new resources like CuprumDeposits and display current stored Power resource. (Original TODO can be kept or removed as items are addressed)
-            parent.spawn((TextBundle::from_section("Housing:", TextStyle { font_size: 20.0, color: HOUSING_COLOR, ..default() }).with_style(Style { margin: UiRect { left: Val::Px(40.0), ..default() }, ..default() }), ColonyStatText(StatType::Housing)));
-            parent.spawn((TextBundle::from_section("Jobs:", TextStyle { font_size: 20.0, color: JOBS_COLOR, ..default() }).with_style(Style { margin: UiRect { left: Val::Px(20.0), ..default() }, ..default() }), ColonyStatText(StatType::Jobs)));
-            parent.spawn((TextBundle::from_section("Health:", TextStyle { font_size: 20.0, color: HEALTH_COLOR, ..default() }).with_style(Style { margin: UiRect { left: Val::Px(20.0), ..default() }, ..default() }), ColonyStatText(StatType::Health)));
-            parent.spawn((TextBundle::from_section("Police:", TextStyle { font_size: 20.0, color: POLICE_COLOR, ..default() }).with_style(Style { margin: UiRect { left: Val::Px(20.0), ..default() }, ..default() }), ColonyStatText(StatType::Police)));
-            // Spawn HappinessText
-            parent.spawn((
-                TextBundle::from_section(
-                    "Happiness: 0%", // Initial text
-                    TextStyle {
-                        font_size: 20.0, // Consistent font size
-                        color: Color::rgb(0.8, 0.8, 0.2), // A yellowish color
-                        ..default()
-                    }
-                )
-                .with_style(Style {
-                    margin: UiRect { left: Val::Px(20.0), ..default() }, // Consistent margin
-                    ..default()
-                }),
-                HappinessText // Marker component
-            ));
+            
+            // Colony Happiness (ensure this is at the end or use justify_content on parent if more items are added to push it right)
+            parent.spawn((TextBundle::from_section("😐 0%", TextStyle { font_size: 18.0, color: Color::YELLOW, ..default() }).with_style(Style { margin: UiRect { left: Val::Px(15.0) }, ..default() }), ColonyHappinessText));
         });
 
-        // --- Center Content (Graph Area) ---
-        // This is now just a background panel. The gizmos will be drawn on top of it.
-        parent.spawn((
-            NodeBundle {
-                style: Style { width: Val::Percent(100.0), height: Val::Percent(100.0), margin: UiRect::all(Val::Px(10.0)), ..default() },
-                background_color: Color::rgba(0.1, 0.1, 0.1, 0.5).into(),
+        // --- New Middle Area (App Drawer + Colony Viewport) ---
+        parent.spawn(NodeBundle {
+            style: Style {
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0), // Or flex_grow: 1.0 if TopBar has fixed height
+                flex_direction: FlexDirection::Row,
                 ..default()
             },
-            GraphArea, // Add marker to find its position and size
-        ));
-
-        // --- Bottom Bar ---
-        parent.spawn(NodeBundle {
-            style: Style { width: Val::Percent(100.0), padding: UiRect::all(Val::Px(5.0)), align_items: AlignItems::Center, justify_content: JustifyContent::SpaceBetween, ..default() },
-            background_color: Color::DARK_GRAY.into(), ..default()
+            ..default()
         }).with_children(|parent| {
-            parent.spawn(NodeBundle { style: Style { flex_direction: FlexDirection::Row, flex_wrap: FlexWrap::Wrap, width: Val::Percent(75.0), ..default() }, ..default() })
-                .with_children(|parent| {
-                    let buildings = [
-                        BuildingType::BioDome, BuildingType::Extractor, BuildingType::PowerRelay,
-                        BuildingType::StorageSilo, BuildingType::ResearchInstitute,
-                        BuildingType::Fabricator, BuildingType::ProcessingPlant,
-                    ];
-                    for building_type in buildings {
-                        parent.spawn((ButtonBundle { style: Style { padding: UiRect::all(Val::Px(8.)), margin: UiRect::all(Val::Px(3.)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }, background_color: NORMAL_BUTTON.into(), ..default() }, BuildButton(building_type)))
-                                .with_children(|p| { p.spawn(TextBundle::from_section(format!("Build {:?}", building_type), TextStyle { font_size: 16.0, ..default() })); });
-                    }
-
-                    // Add new Spire buttons:
+            // --- App Drawer (Left) ---
+            parent.spawn(NodeBundle {
+                style: Style {
+                    width: Val::Percent(15.0),
+                    height: Val::Percent(100.0),
+                    flex_direction: FlexDirection::Column,
+                    padding: UiRect::all(Val::Px(5.0)),
+                    ..default()
+                },
+                background_color: Color::rgb(0.1, 0.1, 0.1).into(),
+                ..default()
+            }).with_children(|parent| {
+                let app_buttons = [AppType::Dashboard, AppType::Construction, AppType::ColonyStatus, AppType::Research];
+                for app_type in app_buttons {
                     parent.spawn((
                         ButtonBundle {
-                            style: Style { padding: UiRect::all(Val::Px(8.)), margin: UiRect::all(Val::Px(3.)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() },
+                            style: Style {
+                                width: Val::Percent(95.0),
+                                padding: UiRect::all(Val::Px(10.0)),
+                                margin: UiRect::all(Val::Px(3.0)),
+                                justify_content: JustifyContent::Center,
+                                align_items: AlignItems::Center,
+                                ..default()
+                            },
                             background_color: NORMAL_BUTTON.into(),
                             ..default()
                         },
-                        ConstructSpireButton
+                        AppDrawerButton(app_type),
                     )).with_children(|p| {
-                        p.spawn(TextBundle::from_section("Construct Spire", TextStyle { font_size: 16.0, ..default() }));
+                        p.spawn(TextBundle::from_section(format!("{:?}", app_type), TextStyle { font_size: 18.0, ..default() }));
                     });
+                }
+            });
 
-                    parent.spawn((
-                        ButtonBundle {
-                            style: Style { padding: UiRect::all(Val::Px(8.)), margin: UiRect::all(Val::Px(3.)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() },
-                            background_color: NORMAL_BUTTON.into(),
+            // --- Colony Viewport (Right) ---
+            // This NodeBundle is the main content area for different "Apps"
+            parent.spawn(NodeBundle {
+                style: Style {
+                    width: Val::Percent(85.0),
+                    height: Val::Percent(100.0),
+                    margin: UiRect::all(Val::Px(10.0)),
+                    flex_direction: FlexDirection::Column, // Children panels will stack vertically
+                    ..default()
+                },
+                ..default()
+            }).with_children(|parent| {
+                // --- Dashboard Panel ---
+                parent.spawn((
+                    NodeBundle {
+                        style: Style {
+                            width: Val::Percent(100.0),
+                            height: Val::Percent(100.0),
+                            display: Display::None, // Initially hidden
+                            flex_direction: FlexDirection::Column,
                             ..default()
                         },
-                        UpgradeSpireButton
-                    )).with_children(|p| {
-                        p.spawn(TextBundle::from_section("Upgrade Spire", TextStyle { font_size: 16.0, ..default() }));
+                        ..default()
+                    },
+                    DashboardPanel,
+                )).with_children(|dashboard_content| {
+                    // Notifications Panel (within Dashboard)
+                    dashboard_content.spawn((
+                        NodeBundle {
+                            style: Style {
+                                flex_grow: 0.3, // Takes 30% of DashboardPanel height
+                                padding: UiRect::all(Val::Px(5.0)),
+                                ..default()
+                            },
+                            background_color: Color::rgba(0.0, 0.0, 0.0, 0.3).into(),
+                            ..default()
+                        },
+                        NotificationsPanel,
+                    )).with_children(|notifications_parent| {
+                         notifications_parent.spawn(TextBundle::from_section("Notifications Appear Here", TextStyle {font_size: 16.0, color: Color::GRAY, ..default()}));
                     });
 
-                    // Add Habitation Structure buttons
-                    let habitation_tiers_info = [
-                        (0, "Build Basic Dwellings"),
-                        (1, "Build Community Blocks"),
-                        (2, "Build Arcology Spires"),
-                    ];
-
-                    for (tier_index, button_text) in habitation_tiers_info.iter() {
-                        parent.spawn((
-                            ButtonBundle {
-                                style: Style { padding: UiRect::all(Val::Px(8.)), margin: UiRect::all(Val::Px(3.)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() },
-                                background_color: NORMAL_BUTTON.into(),
+                    // Analytics Graph Panel (within Dashboard)
+                    dashboard_content.spawn((
+                        NodeBundle {
+                            style: Style {
+                                flex_grow: 0.7, // Takes 70% of DashboardPanel height
                                 ..default()
                             },
-                            BuildHabitationButton(*tier_index) // Store tier_index
-                        )).with_children(|p| {
-                            p.spawn(TextBundle::from_section(*button_text, TextStyle { font_size: 16.0, ..default() }));
-                        });
-                    }
-
-                    // Add Service Building buttons
-                    let service_buildings_to_add = [
-                        (game_state::ServiceType::Wellness, 0, "Build Clinic"),
-                        (game_state::ServiceType::Security, 0, "Build Security Post"),
-                        // (game_state::ServiceType::Education, 0, "Build School") // Example for more
-                    ];
-
-                    for (service_type, tier_index, button_text) in service_buildings_to_add.iter() {
-                        parent.spawn((
-                            ButtonBundle {
-                                style: Style { padding: UiRect::all(Val::Px(8.)), margin: UiRect::all(Val::Px(3.)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() },
-                                background_color: NORMAL_BUTTON.into(),
+                            ..default()
+                        },
+                        AnalyticsGraphPanel,
+                    )).with_children(|graph_parent| {
+                        // Move existing GraphArea here
+                        graph_parent.spawn((
+                            NodeBundle {
+                                style: Style {
+                                    width: Val::Percent(100.0),
+                                    height: Val::Percent(100.0),
+                                    ..default()
+                                },
+                                background_color: Color::rgba(0.1, 0.1, 0.1, 0.5).into(), // Original GraphArea background
                                 ..default()
                             },
-                            BuildServiceBuildingButton { service_type: *service_type, tier_index: *tier_index }
-                        )).with_children(|p| {
-                            p.spawn(TextBundle::from_section(*button_text, TextStyle { font_size: 16.0, ..default() }));
-                        });
-                    }
-
-                    // Add Zone buttons
-                    let zones_to_add = [
-                        (game_state::ZoneType::Commercial, 0, "Develop Market Stalls"), // Commercial Tier 0
-                        (game_state::ZoneType::LightIndustry, 0, "Develop Workshops"),   // Light Industry Tier 0
-                    ];
-
-                    for (zone_type, tier_index, button_text) in zones_to_add.iter() {
-                        parent.spawn((
-                            ButtonBundle {
-                                style: Style { padding: UiRect::all(Val::Px(8.)), margin: UiRect::all(Val::Px(3.)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() },
-                                background_color: NORMAL_BUTTON.into(),
-                                ..default()
-                            },
-                            BuildZoneButton { zone_type: *zone_type, tier_index: *tier_index }
-                        )).with_children(|p| {
-                            p.spawn(TextBundle::from_section(*button_text, TextStyle { font_size: 16.0, ..default() }));
-                        });
-                    }
+                            GraphArea, 
+                        ));
+                    });
                 });
-            
-            parent.spawn(NodeBundle { style: Style { align_items: AlignItems::Center, justify_content: JustifyContent::FlexEnd, flex_direction: FlexDirection::Row, ..default() }, ..default() })
-                .with_children(|parent| {
-                    // TODO: Add UI buttons for new research like EfficientExtraction.
-                    parent.spawn((ButtonBundle { style: Style { padding: UiRect::all(Val::Px(8.)), margin: UiRect::horizontal(Val::Px(5.)), ..default() }, background_color: NORMAL_BUTTON.into(), ..default() }, ResearchButton(Tech::BasicConstructionProtocols)))
-                            .with_children(|p| { p.spawn(TextBundle::from_section("Research Basic Construction", TextStyle { font_size: 16.0, ..default() })); });
-                    parent.spawn((
-                        ButtonBundle {
-                            style: Style { padding: UiRect::all(Val::Px(8.)), margin: UiRect::horizontal(Val::Px(5.)), ..default() },
-                            background_color: NORMAL_BUTTON.into(),
+
+                // --- Construction Panel ---
+                parent.spawn((
+                    NodeBundle {
+                        style: Style { 
+                            width: Val::Percent(100.0), 
+                            height: Val::Percent(100.0), 
+                            display: Display::None, // Initially hidden
+                            flex_direction: FlexDirection::Column, // Main axis for this panel
                             ..default()
                         },
-                        ResearchButton(Tech::EfficientExtraction) // Use the correct Tech enum variant
-                    )).with_children(|p| {
-                        p.spawn(TextBundle::from_section("Research Efficient Extraction", TextStyle { font_size: 16.0, ..default() }));
+                        ..default()
+                    },
+                    ConstructionPanel,
+                )).with_children(|construction_panel_content| {
+                    // Remove placeholder: p.spawn(TextBundle::from_section("Construction App Content", TextStyle {font_size: 24.0, ..default()}));
+                    
+                    // Tabs Section
+                    construction_panel_content.spawn(NodeBundle {
+                        style: Style {
+                            width: Val::Percent(100.0),
+                            height: Val::Px(40.0), // Fixed height for tab bar
+                            flex_direction: FlexDirection::Row,
+                            justify_content: JustifyContent::Center,
+                            align_items: AlignItems::Center,
+                            ..default()
+                        },
+                        ..default()
+                    }).with_children(|tabs_bar| {
+                        let categories = [ConstructionCategory::Operations, ConstructionCategory::Habitation, ConstructionCategory::Legacy];
+                        for category in categories {
+                            tabs_bar.spawn((
+                                ButtonBundle {
+                                    style: Style {
+                                        padding: UiRect::all(Val::Px(8.0)),
+                                        margin: UiRect::horizontal(Val::Px(5.0)),
+                                        ..default()
+                                    },
+                                    background_color: NORMAL_BUTTON.into(),
+                                    ..default()
+                                },
+                                ConstructionCategoryTab(category),
+                            )).with_children(|button_content| {
+                                button_content.spawn(TextBundle::from_section(format!("{:?}", category), TextStyle {font_size: 16.0, ..default()}));
+                            });
+                        }
                     });
-                    parent.spawn((TextBundle::from_section("Welcome!", TextStyle { font_size: 20.0, ..default() }).with_style(Style{margin: UiRect::left(Val::Px(20.0)), ..default()}), MessageText));
+
+                    // Building List Section
+                    construction_panel_content.spawn((
+                        NodeBundle {
+                            style: Style {
+                                width: Val::Percent(100.0),
+                                flex_grow: 1.0, // Takes remaining vertical space
+                                flex_direction: FlexDirection::Column, // Items will list vertically
+                                padding: UiRect::all(Val::Px(5.0)),
+                                background_color: Color::rgba(0.0, 0.0, 0.0, 0.2).into(),
+                                ..default()
+                            },
+                            ..default()
+                        },
+                        ConstructionItemListPanel,
+                    )).with_children(|list_panel| {
+                        list_panel.spawn(TextBundle::from_section("Select a category to see buildable items.", TextStyle {font_size: 18.0, color: Color::GRAY, ..default()}));
+                    });
+
+                    // Item Details Section (Placeholder)
+                    construction_panel_content.spawn((
+                        NodeBundle {
+                            style: Style {
+                                width: Val::Percent(100.0),
+                                height: Val::Px(100.0), // Fixed height for now
+                                padding: UiRect::all(Val::Px(5.0)),
+                                background_color: Color::rgba(0.0, 0.0, 0.0, 0.4).into(),
+                                ..default()
+                            },
+                            ..default()
+                        },
+                        ConstructionItemDetailsPanel,
+                    )).with_children(|details_panel| {
+                        details_panel.spawn(TextBundle::from_section("Select an item to see details.", TextStyle {font_size: 16.0, color: Color::GRAY, ..default()}));
+                    });
                 });
+                
+                // --- ColonyStatus Panel ---
+                parent.spawn((
+                    NodeBundle {
+                        style: Style { width: Val::Percent(100.0), height: Val::Percent(100.0), display: Display::None, justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default()},
+                        ..default()
+                    },
+                    ColonyStatusPanel,
+                )).with_children(|p| { p.spawn(TextBundle::from_section("Colony Status App Content", TextStyle {font_size: 24.0, ..default()})); });
+
+                // --- Research Panel ---
+                parent.spawn((
+                    NodeBundle {
+                        style: Style { width: Val::Percent(100.0), height: Val::Percent(100.0), display: Display::None, justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default()},
+                        ..default()
+                    },
+                    ResearchPanel,
+                )).with_children(|p| { p.spawn(TextBundle::from_section("Research App Content", TextStyle {font_size: 24.0, ..default()})); });
+            });
         });
+
+        // --- Bottom Bar (Removed) ---
+        // The entire bottom bar NodeBundle and its children are removed.
     });
     // TODO: Spawn initial entities, e.g., a starting Operations Hub, some initial PowerRelays or a small amount of stored Power if not covered by GameState::default().
 
@@ -870,61 +970,567 @@ fn update_text_display(
     stats: Res<ColonyStats>,
     log: Res<MessageLog>,
     mut text_queries: ParamSet<(
-        Query<&mut Text, With<PowerText>>,
-        Query<(&mut Text, &ResourceText)>,
-        Query<(&mut Text, &ColonyStatText)>,
-        Query<&mut Text, With<MessageText>>,
-        Query<&mut Text, With<CreditsText>>, // Added query for CreditsText
-        Query<&mut Text, With<HappinessText>> // New query for HappinessText
+        Query<&mut Text, With<PowerText>>,           // p0 (Ticker Power)
+        Query<(&mut Text, &ResourceText)>,           // p1 (Old general resources - review if needed)
+        Query<(&mut Text, &ColonyStatText)>,         // p2 (Old stats for graph, not ticker UI - review if needed)
+        Query<&mut Text, With<MessageText>>,         // p3 (Message log)
+        Query<&mut Text, With<CreditsText>>,         // p4 (Ticker Credits)
+        Query<&mut Text, With<PopulationText>>,     // p5 (New Ticker Population)
+        Query<(&mut Text, &CoreResourceText)>,       // p6 (New Ticker Core Resources)
+        Query<&mut Text, With<ColonyHappinessText>>, // p7 (New Ticker Colony Happiness)
+        // Query<&mut Text, With<HappinessText>> // Removed old HappinessText query
     )>,
-    // Removed: power_q, extractor_q, biodome_q, research_institute_q
-    // as power data will now come from game_state
 ) {
-    // TODO: Add display for new resources like CuprumDeposits. (This specific TODO might be covered now)
+    // Update Ticker Credits display (p4)
+    for mut text in text_queries.p4().iter_mut() {
+        text.sections[0].value = format!("Cr. {:.0}", game_state.credits);
+        // Flashing logic can be added here later if needed
+    }
+
+    // Update Ticker Power display (p0)
+    for mut text in text_queries.p0().iter_mut() {
+        let net_power = game_state.total_generated_power - game_state.total_consumed_power;
+        let stored_power = *game_state.current_resources.get(&ResourceType::Power).unwrap_or(&0.0);
+        let max_power_storage = 5000.0; // Placeholder, as per plan. Ensure GameState might have this later.
+        text.sections[0].value = format!("Power - Net: {:+.0} | Stored: {:.0}/{:.0}", net_power, stored_power, max_power_storage);
+        text.sections[0].style.color = if net_power < 0.0 { Color::RED } else { Color::CYAN };
+    }
+
+    // Update Ticker Population display (p5)
+    for mut text in text_queries.p5().iter_mut() {
+        text.sections[0].value = format!("Inhabitants: {} / {}", game_state.total_inhabitants, game_state.available_housing_capacity);
+        let housing_ratio = if game_state.available_housing_capacity > 0 {
+            game_state.total_inhabitants as f32 / game_state.available_housing_capacity as f32
+        } else if game_state.total_inhabitants > 0 { // More people than houses (0 houses)
+            2.0 // Critical situation
+        } else { // 0 people, 0 houses
+            0.0 // Neutral or normal
+        };
+        text.sections[0].style.color = if housing_ratio >= 0.9 { Color::rgb(1.0, 0.9, 0.3) } else { Color::WHITE }; // Yellowish if 90% full or more
+    }
+
+    // Update Ticker Core Resources display (p6)
+    for (mut text, core_resource_marker) in text_queries.p6().iter_mut() {
+        let amount = game_state.current_resources.get(&core_resource_marker.0).unwrap_or(&0.0);
+        text.sections[0].value = format!("{:?}: {:.0}", core_resource_marker.0, amount);
+    }
+
+    // Update Ticker Colony Happiness display (p7)
+    for mut text in text_queries.p7().iter_mut() {
+        let happiness_icon = match game_state.colony_happiness {
+            h if h >= 85.0 => "😊",
+            h if h >= 50.0 => "😐",
+            _ => "☹️",
+        };
+        text.sections[0].value = format!("{} {:.0}%", happiness_icon, game_state.colony_happiness);
+        text.sections[0].style.color = match game_state.colony_happiness {
+            h if h >= 85.0 => Color::rgb(0.3, 1.0, 0.3), // Green
+            h if h >= 50.0 => Color::rgb(1.0, 0.9, 0.3), // Yellowish
+            _ => Color::rgb(1.0, 0.3, 0.3),              // Reddish
+        };
+    }
+    
+    // Update logic for general ResourceText (p1) - if these are not part of the new ticker, this section might be deprecated or only for other UI.
+    // For now, we assume it's for other UI parts, or it will simply not find any matching entities if they were only in the old top bar.
     for (mut text, resource_marker) in text_queries.p1().iter_mut() {
+        // This section should only update ResourceText entities NOT handled by CoreResourceText in the ticker.
+        // If all resource displays are now CoreResourceText, this loop might become unused.
         let amount = game_state.current_resources.get(&resource_marker.0).unwrap_or(&0.0);
-        // Updated formatting to whole number
         text.sections[0].value = format!("{:?}: {:.0}", resource_marker.0, amount); 
     }
     
-    // Updated power display to use GameState fields
-    for mut text in text_queries.p0().iter_mut() {
-        let stored_power = *game_state.current_resources.get(&ResourceType::Power).unwrap_or(&0.0);
-        let gen = game_state.total_generated_power;
-        let con = game_state.total_consumed_power;
-        let net = gen - con;
-        text.sections[0].value = format!(
-            "Power - Net: {:.0} | Stored: {:.0}",
-            net,
-            stored_power
-        );
-    }
-
+    // Update logic for ColonyStatText (p2) - these were in the old top bar (Housing, Jobs, etc.)
+    // These specific TextBundles are removed from the top bar.
+    // The ColonyStats resource is still updated by `update_colony_stats_system` and used by the graph.
+    // This loop will no longer find the Text entities in the top bar.
+    // If ColonyStatText is used elsewhere in the UI, that logic would remain.
+    // For now, this loop will likely do nothing as the top bar elements are gone.
     for (mut text, stat_marker) in text_queries.p2().iter_mut() {
         text.sections[0].value = match stat_marker.0 {
-            StatType::Housing => format!("Housing: {}", stats.total_housing),
+            StatType::Housing => format!("Housing: {}", stats.total_housing), // Example, will not find entity if it was only in top bar
             StatType::Jobs => format!("Jobs: {}", stats.total_jobs),
             StatType::Health => format!("Health: {}", stats.health_capacity),
             StatType::Police => format!("Police: {}", stats.police_capacity),
         };
     }
     
+    // Message Log update (p3)
     if log.is_changed() {
-        for mut text in text_queries.p3().iter_mut() {
+        if let Ok(mut text) = text_queries.p3().get_single_mut() { // Assuming MessageText is unique
             text.sections[0].value = log.message.clone();
         }
     }
 
-    // Update Credits display
-    for mut text in text_queries.p4().iter_mut() { // p4 is the new index for CreditsText
-        text.sections[0].value = format!("Credits: {:.0}", game_state.credits);
-    }
+    // Old HappinessText update logic (original p5) is removed as its query is removed.
+    // If it were kept, its update logic for the old top bar element would be here and likely do nothing.
+}
 
-    // Update Happiness display
-    for mut text in text_queries.p5().iter_mut() { // p5 is the new index for HappinessText
-        text.sections[0].value = format!("Happiness: {:.1}%", game_state.colony_happiness);
+// --- App Panel Management Systems ---
+
+fn manage_app_panels_visibility(
+    current_app: Res<CurrentApp>,
+    mut panel_queries: ParamSet<(
+        Query<&mut Style, With<DashboardPanel>>,
+        Query<&mut Style, With<ConstructionPanel>>,
+        Query<&mut Style, With<ColonyStatusPanel>>,
+        Query<&mut Style, With<ResearchPanel>>,
+    )>,
+) {
+    // Hide all panels first
+    for mut style in panel_queries.p0().iter_mut() { style.display = Display::None; }
+    for mut style in panel_queries.p1().iter_mut() { style.display = Display::None; }
+    for mut style in panel_queries.p2().iter_mut() { style.display = Display::None; }
+    for mut style in panel_queries.p3().iter_mut() { style.display = Display::None; }
+
+    // Show the current one
+    match current_app.0 {
+        AppType::Dashboard => {
+            if let Ok(mut style) = panel_queries.p0().get_single_mut() {
+                style.display = Display::Flex;
+            }
+        }
+        AppType::Construction => {
+            if let Ok(mut style) = panel_queries.p1().get_single_mut() {
+                style.display = Display::Flex;
+            }
+        }
+        AppType::ColonyStatus => {
+            if let Ok(mut style) = panel_queries.p2().get_single_mut() {
+                style.display = Display::Flex;
+            }
+        }
+        AppType::Research => {
+            if let Ok(mut style) = panel_queries.p3().get_single_mut() {
+                style.display = Display::Flex;
+            }
+        }
     }
 }
+
+fn update_dashboard_notifications_system(
+    current_app: Res<CurrentApp>,
+    game_state: Res<GameState>,
+    notifications_panel_query: Query<Entity, With<NotificationsPanel>>,
+    // Query for children of the notification panel to despawn them.
+    // A more robust way might be to mark notification text entities with a component.
+    // children_query: Query<(Entity, &Parent)>, // Removed this complex query
+    mut commands: Commands,
+) {
+    if current_app.0 != AppType::Dashboard {
+        return;
+    }
+
+    // Update only if game_state (which contains notifications) or current_app changed
+    if game_state.is_changed() || current_app.is_changed() {
+        if let Ok(panel_entity) = notifications_panel_query.get_single() {
+            // Despawn all existing children of the notification panel.
+            // This is simpler and usually preferred for dynamically populated UI lists.
+            commands.entity(panel_entity).despawn_children();
+
+            // Spawn new notifications
+            for event in game_state.notifications.iter().take(10) { // Show latest 10
+                commands.entity(panel_entity).with_children(|parent| {
+                    parent.spawn(TextBundle::from_section(
+                        format!("[{:.1}] {}", event.timestamp, event.message), 
+                        TextStyle { font_size: 16.0, color: Color::WHITE, ..default() }
+                    ).with_style(Style{ margin: UiRect::bottom(Val::Px(2.0)), ..default()}));
+                });
+            }
+        }
+    }
+}
+
+
+// --- App Drawer Button System ---
+const ACTIVE_BUTTON_COLOR: Color = Color::rgb(0.2, 0.5, 0.2); // Greenish for active app
+const ACTIVE_CONSTRUCTION_TAB_COLOR: Color = Color::rgb(0.2, 0.5, 0.2); // Similar active color for construction tabs
+
+
+fn construction_category_tab_system(
+    mut interaction_query: Query<(&Interaction, &ConstructionCategoryTab, &mut BackgroundColor), (Changed<Interaction>, With<Button>)>,
+    mut current_category: ResMut<CurrentConstructionCategory>,
+    all_category_tabs_query: Query<(&ConstructionCategoryTab, &mut BackgroundColor), With<Button>>,
+) {
+    // Reset all tabs first
+    for (tab, mut bg_color) in all_category_tabs_query.iter() {
+        if tab.0 == current_category.0 {
+            *bg_color = ACTIVE_CONSTRUCTION_TAB_COLOR.into();
+        } else {
+            *bg_color = NORMAL_BUTTON.into();
+        }
+    }
+
+    for (interaction, tab, mut bg_color) in &mut interaction_query {
+        match *interaction {
+            Interaction::Pressed => {
+                *bg_color = PRESSED_BUTTON.into();
+                if current_category.0 != tab.0 {
+                    current_category.0 = tab.0;
+                    println!("Switched to construction category: {:?}", current_category.0);
+                }
+            }
+            Interaction::Hovered => {
+                if tab.0 != current_category.0 {
+                    *bg_color = HOVERED_BUTTON.into();
+                }
+            }
+            Interaction::None => {
+                 if tab.0 == current_category.0 {
+                    *bg_color = ACTIVE_CONSTRUCTION_TAB_COLOR.into();
+                } else {
+                    *bg_color = NORMAL_BUTTON.into();
+                }
+            }
+        }
+    }
+}
+
+fn update_construction_list_system(
+    current_app: Res<CurrentApp>,
+    current_category: Res<CurrentConstructionCategory>,
+    mut item_list_panel_query: Query<Entity, With<ConstructionItemListPanel>>,
+    game_state: Res<GameState>, 
+    mut commands: Commands,
+) {
+    if current_app.0 != AppType::Construction {
+        return;
+    }
+
+    if current_category.is_changed() || (current_app.is_changed() && current_app.0 == AppType::Construction) {
+        if let Ok(panel_entity) = item_list_panel_query.get_single_mut() {
+            commands.entity(panel_entity).despawn_children(); 
+
+            let building_meta_map = get_building_metadata();
+            // Iterate over ALL_BUILDING_TYPES from game_state.rs
+            // Ensure game_state::ALL_BUILDING_TYPES is imported.
+            
+            let mut found_items = false;
+            commands.entity(panel_entity).with_children(|parent| {
+                for building_type_ref in ALL_BUILDING_TYPES.iter() {
+                    let building_type = *building_type_ref; // Dereference to get GameBuildingType
+                    if let Some(meta) = building_meta_map.get(&building_type) {
+                        if meta.category == current_category.0 {
+                            found_items = true;
+                            
+                            let tech_ok = meta.required_tech.map_or(true, |tech| game_state.unlocked_techs.contains(&tech));
+                            // let dp_ok = meta.required_dp.map_or(true, |dp| game_state.current_development_phase >= dp); // Assuming DP is comparable
+                            
+                            if tech_ok { // Add dp_ok when ready
+                                let (can_afford_credits, can_afford_materials) = check_affordability(&game_state, building_type);
+                                let button_color = if can_afford_credits && can_afford_materials { NORMAL_BUTTON } else { Color::rgba(0.5, 0.15, 0.15, 0.8) };
+
+                                parent.spawn((
+                                    ButtonBundle {
+                                        style: Style { 
+                                            width: Val::Percent(90.0), 
+                                            padding: UiRect::all(Val::Px(5.0)), 
+                                            margin: UiRect::all(Val::Px(2.0)), 
+                                            justify_content: JustifyContent::Center, 
+                                            align_items: AlignItems::Center, // Center text vertically
+                                            ..default() 
+                                        },
+                                        background_color: button_color.into(),
+                                        ..default()
+                                    },
+                                    ConstructionItemButton(building_type) 
+                                )).with_children(|p| {
+                                    p.spawn(TextBundle::from_section(meta.name, TextStyle { font_size: 16.0, ..default() }));
+                                    // TODO: Optionally, add cost text here too
+                                });
+                            }
+                        }
+                    }
+                }
+                if !found_items {
+                    parent.spawn(TextBundle::from_section(
+                        format!("No items currently available in {:?} category.", current_category.0), 
+                        TextStyle { font_size: 16.0, color: Color::GRAY, ..default() }
+                    ));
+                }
+            });
+        }
+    }
+}
+
+fn check_affordability(game_state: &Res<GameState>, building_type: GameBuildingType) -> (bool, bool) {
+    let mut can_afford_credits = true; 
+    let mut can_afford_materials = true;
+
+    // For GameState-managed buildings, their `add_...` functions typically handle credit costs.
+    // Material costs, if any, might be in `building_costs` or also handled internally.
+    // This simplified check primarily looks at `building_costs` for material costs.
+    // Credit checks for these types are often implicit (i.e., if the `add_...` function succeeds).
+    // For this UI visual cue, we'll assume credits are OK for GameState types unless a specific rule is added.
+
+    match building_type {
+        GameBuildingType::Fabricator | GameBuildingType::ProcessingPlant | GameBuildingType::BasicDwelling => {
+            // These types have their costs (especially credits) handled by their respective
+            // game_state::add_fabricator, game_state::add_processing_plant, game_state::add_habitation_structure functions.
+            // For visual cue, if they have entries in `building_costs` (e.g. for supplemental materials), check those.
+            // Otherwise, assume credits are the main factor checked at construction time.
+            if let Some(material_costs) = game_state.building_costs.get(&building_type) {
+                for (res, &required_amount) in material_costs {
+                    if game_state.current_resources.get(res).unwrap_or(&0.0) < &required_amount {
+                        can_afford_materials = false;
+                        break;
+                    }
+                }
+            }
+            // Credit affordability for these is complex to determine here without calling cost-calculating functions
+            // from game_state.rs that might exist for each tier. For now, assume true for UI cue.
+        }
+        _ => { // For other Bevy component buildings (Extractor, BioDome, etc.)
+            if let Some(material_costs) = game_state.building_costs.get(&building_type) {
+                for (res, &required_amount) in material_costs {
+                    if game_state.current_resources.get(res).unwrap_or(&0.0) < &required_amount {
+                        can_afford_materials = false;
+                        break;
+                    }
+                }
+                // Example: If credits were part of building_costs map under a special ResourceType::Credits
+                // if let Some(credit_cost) = material_costs.get(&ResourceType::Credits) {
+                //     can_afford_credits = game_state.credits >= *credit_cost;
+                // }
+            } else {
+                // If a Bevy component building is NOT in building_costs, it implies no material cost or missing data.
+                // For this simplified check, assume no material cost if not listed.
+                // can_afford_materials = false; // Or true, depending on desired behavior for missing data
+            }
+        }
+    }
+    (can_afford_credits, can_afford_materials)
+}
+
+fn construction_item_interaction_system(
+    mut interaction_query: Query<(&Interaction, &ConstructionItemButton, &mut BackgroundColor), (Changed<Interaction>, With<Button>)>,
+    mut selected_building_res: ResMut<SelectedBuilding>,
+    game_state: Res<GameState>, 
+    // Query all construction item buttons to update their colors based on selection state
+    mut all_item_buttons_query: Query<(&ConstructionItemButton, &mut BackgroundColor), With<Button>>,
+) {
+    // Update all buttons first based on current selection and affordability
+    for (item_button, mut bg_color) in &mut all_item_buttons_query {
+        let building_type = item_button.0;
+        let (can_afford_credits, can_afford_materials) = check_affordability(&game_state, building_type);
+        let is_selected = selected_building_res.0 == Some(building_type);
+
+        if is_selected {
+            *bg_color = Color::rgb(0.2, 0.6, 0.2).into(); // Selected color
+        } else if can_afford_credits && can_afford_materials {
+            *bg_color = NORMAL_BUTTON.into();
+        } else {
+            *bg_color = Color::rgba(0.5, 0.15, 0.15, 0.8).into(); // Unaffordable color
+        }
+    }
+
+    // Then handle specific interactions
+    for (interaction, item_button, mut bg_color) in &mut interaction_query {
+        let building_type = item_button.0;
+        let is_selected = selected_building_res.0 == Some(building_type);
+
+        match *interaction {
+            Interaction::Pressed => {
+                // The color will be updated by the loop above in the next frame based on selection.
+                // For immediate feedback on press:
+                *bg_color = PRESSED_BUTTON.into(); 
+                if is_selected {
+                    selected_building_res.0 = None; // Deselect if clicked again
+                    println!("Deselected building: {:?}", building_type);
+                } else {
+                    selected_building_res.0 = Some(building_type);
+                    println!("Selected building: {:?}", building_type);
+                }
+            }
+            Interaction::Hovered => {
+                // Only apply hover color if it's not the active selected button
+                if !is_selected {
+                    *bg_color = HOVERED_BUTTON.into();
+                }
+            }
+            Interaction::None => {
+                // The loop at the beginning handles the final color for non-hovered states
+            }
+        }
+    }
+}
+
+fn update_construction_details_panel_system(
+    selected_building: Res<SelectedBuilding>,
+    game_state: Res<GameState>,
+    mut details_panel_query: Query<Entity, With<ConstructionItemDetailsPanel>>,
+    mut commands: Commands,
+) {
+    if !selected_building.is_changed() && !game_state.is_changed(){ // Only update if selection or game state changed
+        return;
+    }
+
+    if let Ok(details_panel_entity) = details_panel_query.get_single_mut() {
+        commands.entity(details_panel_entity).despawn_children();
+        let building_meta_map = get_building_metadata();
+
+        if let Some(building_type) = selected_building.0 {
+            if let Some(meta) = building_meta_map.get(&building_type) {
+                commands.entity(details_panel_entity).with_children(|parent| {
+                    parent.spawn(TextBundle::from_section(meta.name, TextStyle { font_size: 24.0, ..default() }).with_style(Style{ margin: UiRect::bottom(Val::Px(10.0)), ..default()}));
+                    parent.spawn(TextBundle::from_section("A standard construction offering from Nexus Core.", TextStyle { font_size: 16.0, ..default() }).with_style(Style{ margin: UiRect::bottom(Val::Px(8.0)), ..default()}));
+                    
+                    parent.spawn(TextBundle::from_section("Costs:", TextStyle { font_size: 18.0, ..default() }).with_style(Style{ margin: UiRect::bottom(Val::Px(3.0)), ..default()}));
+                    parent.spawn(TextBundle::from_section(" - Credits: Varies (see build action)", TextStyle { font_size: 16.0, ..default() }).with_style(Style{ margin: UiRect { left: Val::Px(10.0), bottom: Val::Px(2.0) }, ..default()}));
+                    if let Some(material_costs) = game_state.building_costs.get(&building_type) {
+                        if material_costs.is_empty() { 
+                            parent.spawn(TextBundle::from_section(" - Materials: None", TextStyle { font_size: 16.0, ..default() }).with_style(Style{ margin: UiRect { left: Val::Px(10.0), bottom: Val::Px(2.0) }, ..default()}));
+                        }
+                        for (res, amount) in material_costs { 
+                            parent.spawn(TextBundle::from_section(format!(" - {:?}: {}", res, amount), TextStyle { font_size: 16.0, ..default() }).with_style(Style{ margin: UiRect { left: Val::Px(10.0), bottom: Val::Px(2.0) }, ..default()})); 
+                        }
+                    } else { 
+                        parent.spawn(TextBundle::from_section(" - Materials: None specified", TextStyle { font_size: 16.0, ..default() }).with_style(Style{ margin: UiRect { left: Val::Px(10.0), bottom: Val::Px(2.0) }, ..default()}));
+                    }
+
+                    parent.spawn(TextBundle::from_section("Requirements:", TextStyle { font_size: 18.0, ..default() }).with_style(Style{ margin: UiRect { top: Val::Px(8.0), bottom: Val::Px(3.0) }, ..default()}));
+                    if let Some(tech) = meta.required_tech { 
+                        parent.spawn(TextBundle::from_section(format!(" - Tech: {:?}", tech), TextStyle { font_size: 16.0, ..default() }).with_style(Style{ margin: UiRect { left: Val::Px(10.0), bottom: Val::Px(2.0) }, ..default()}));
+                    } else { 
+                        parent.spawn(TextBundle::from_section(" - Tech: None", TextStyle { font_size: 16.0, ..default() }).with_style(Style{ margin: UiRect { left: Val::Px(10.0), bottom: Val::Px(2.0) }, ..default()}));
+                    }
+                    if let Some(dp) = meta.required_dp { 
+                        parent.spawn(TextBundle::from_section(format!(" - Min. DP: {:?}", dp), TextStyle { font_size: 16.0, ..default() }).with_style(Style{ margin: UiRect { left: Val::Px(10.0), bottom: Val::Px(2.0) }, ..default()}));
+                    }
+
+                    parent.spawn((
+                        ButtonBundle {
+                            style: Style { width: Val::Percent(50.0), padding: UiRect::all(Val::Px(8.0)), margin: UiRect::top(Val::Px(15.0)), justify_content: JustifyContent::Center, align_self: AlignSelf::Center, ..default() },
+                            background_color: NORMAL_BUTTON.into(),
+                            ..default()
+                        },
+                        ConfirmBuildButton(building_type)
+                    )).with_children(|p| { p.spawn(TextBundle::from_section("Initiate Construction", TextStyle { font_size: 18.0, ..default() })); });
+                });
+            }
+        } else {
+            commands.entity(details_panel_entity).with_children(|parent| {
+                parent.spawn(TextBundle::from_section("Select an item from the list to see details.", TextStyle { font_size: 16.0, color: Color::GRAY, ..default() }));
+            });
+        }
+    }
+}
+
+fn construction_interaction_system(
+    mut interaction_query: Query<(&Interaction, &ConfirmBuildButton), (Changed<Interaction>, With<Button>)>,
+    mut game_state: ResMut<GameState>,
+    mut commands: Commands,
+    mut selected_building: ResMut<SelectedBuilding>, // Changed to ResMut
+    time: Res<Time>,
+) {
+    for (interaction, confirm_button) in &mut interaction_query {
+        if *interaction == Interaction::Pressed {
+            let building_type = confirm_button.0;
+            let building_meta_map = get_building_metadata();
+            let meta = if let Some(m) = building_meta_map.get(&building_type) { m } else { 
+                game_state::add_notification(&mut game_state, format!("Error: No metadata for {:?}", building_type), time.elapsed_seconds_f64());
+                return; 
+            };
+
+            if let Some(req_tech) = meta.required_tech {
+                if !game_state.unlocked_techs.contains(&req_tech) {
+                    game_state::add_notification(&mut game_state, format!("Failed: {:?} requires tech {:?}", meta.name, req_tech), time.elapsed_seconds_f64());
+                    return;
+                }
+            }
+            
+            let mut can_afford_materials = true;
+            if let Some(material_costs) = game_state.building_costs.get(&building_type) {
+                for (res, &required_amount) in material_costs {
+                    if game_state.current_resources.get(res).unwrap_or(&0.0) < &required_amount {
+                        can_afford_materials = false;
+                        break;
+                    }
+                }
+            }
+            if !can_afford_materials {
+                game_state::add_notification(&mut game_state, format!("Failed: Not enough materials for {:?}", meta.name), time.elapsed_seconds_f64());
+                return;
+            }
+
+            if let Some(material_costs) = game_state.building_costs.get(&building_type) {
+                for (res, cost) in material_costs {
+                    *game_state.current_resources.get_mut(res).unwrap() -= cost;
+                }
+            }
+            
+            let mut construction_triggered = false;
+            match building_type {
+                GameBuildingType::Fabricator => { game_state::add_fabricator(&mut game_state, 0); construction_triggered = true; }
+                GameBuildingType::ProcessingPlant => { game_state::add_processing_plant(&mut game_state, 0); construction_triggered = true; }
+                GameBuildingType::BasicDwelling => { game_state::add_habitation_structure(&mut game_state, 0); construction_triggered = true; }
+                GameBuildingType::Extractor => { commands.spawn(Extractor { power_consumption: 15, resource_type: ResourceType::FerrocreteOre, extraction_rate: 2.5 }); construction_triggered = true; }
+                GameBuildingType::BioDome => { commands.spawn(BioDome { power_consumption: 10, production_rate: 5.0 }); construction_triggered = true; }
+                GameBuildingType::PowerRelay => { commands.spawn(PowerRelay { power_output: 50 }); construction_triggered = true; }
+                GameBuildingType::StorageSilo => { commands.spawn(StorageSilo { capacity: 1000 }); construction_triggered = true; }
+                GameBuildingType::ResearchInstitute => { commands.spawn(ResearchInstitute { power_consumption: 5 }); construction_triggered = true; }
+                GameBuildingType::WellnessPost => { commands.spawn(WellnessPost { health_capacity: 50, jobs_provided: 5 }); construction_triggered = true; }
+                GameBuildingType::SecurityStation => { commands.spawn(SecurityStation { police_capacity: 50, jobs_provided: 5 }); construction_triggered = true; }
+                _ => { game_state::add_notification(&mut game_state, format!("Construction for {:?} not yet implemented.", meta.name), time.elapsed_seconds_f64()); }
+            }
+
+            if construction_triggered {
+                game_state::add_notification(&mut game_state, format!("Construction started: {:?}", meta.name), time.elapsed_seconds_f64());
+                selected_building.0 = None; 
+            }
+        }
+    }
+}
+
+fn app_drawer_button_system(
+    mut interaction_query: Query<(&Interaction, &AppDrawerButton, &mut BackgroundColor), (Changed<Interaction>, With<Button>)>,
+    mut current_app_res: ResMut<CurrentApp>,
+    all_app_buttons_query: Query<(&AppDrawerButton, &mut BackgroundColor), With<Button>>, // Query all buttons to reset non-active ones
+) {
+    // First, reset all buttons to normal or active state based on current_app_res
+    // This is needed because interactions only trigger for the button being interacted with.
+    // We need to reflect the global CurrentApp state on all buttons.
+    // This part runs every time there's an interaction, but it's okay for a few buttons.
+    // A more complex solution might use events or only update when current_app_res changes.
+    for (app_button, mut bg_color) in all_app_buttons_query.iter() {
+        if app_button.0 == current_app_res.0 {
+            *bg_color = ACTIVE_BUTTON_COLOR.into();
+        } else {
+            *bg_color = NORMAL_BUTTON.into();
+        }
+    }
+
+    for (interaction, app_button, mut bg_color) in &mut interaction_query {
+        match *interaction {
+            Interaction::Pressed => {
+                *bg_color = PRESSED_BUTTON.into(); // Temporary pressed color
+                if current_app_res.0 != app_button.0 {
+                    current_app_res.0 = app_button.0;
+                    println!("Switched to app: {:?}", current_app_res.0);
+                    // After switching, the loop above (or a separate system reacting to CurrentApp change)
+                    // will set the correct active/normal colors.
+                    // For immediate feedback, we can set it here too, but the loop above handles the general case.
+                    // *bg_color = ACTIVE_BUTTON_COLOR.into(); // Set this button to active
+                }
+            }
+            Interaction::Hovered => {
+                // Only apply hover color if it's not the active button
+                if app_button.0 != current_app_res.0 {
+                    *bg_color = HOVERED_BUTTON.into();
+                }
+            }
+            Interaction::None => {
+                // This is handled by the loop at the beginning of the system
+                // which sets active or normal based on current_app_res.0
+                if app_button.0 == current_app_res.0 {
+                     *bg_color = ACTIVE_BUTTON_COLOR.into();
+                } else {
+                    *bg_color = NORMAL_BUTTON.into();
+                }
+            }
+        }
+    }
+}
+
 
 fn admin_spire_button_system(
     mut button_queries: ParamSet<(

@@ -455,6 +455,19 @@ pub enum BuildingType {
     SecurityStation,
 }
 
+pub const ALL_BUILDING_TYPES: &[BuildingType] = &[
+    BuildingType::Extractor,
+    BuildingType::BioDome,
+    BuildingType::PowerRelay,
+    BuildingType::StorageSilo,
+    BuildingType::ResearchInstitute,
+    BuildingType::Fabricator,
+    BuildingType::ProcessingPlant,
+    BuildingType::BasicDwelling,
+    BuildingType::WellnessPost,
+    BuildingType::SecurityStation,
+];
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Tech {
     BasicConstructionProtocols,
@@ -532,6 +545,14 @@ pub struct GameState {
     // Power grid totals
     pub total_generated_power: f32,
     pub total_consumed_power: f32,
+    // Notifications
+    pub notifications: VecDeque<NotificationEvent>,
+}
+
+#[derive(Clone, Debug, PartialEq)] // Added Eq for potential future use, Clone, Debug
+pub struct NotificationEvent {
+    pub message: String,
+    pub timestamp: f64, // Using f64 to align with potential Bevy time resources
 }
 
 // --- Fabricator Data Structures ---
@@ -671,9 +692,38 @@ impl Default for GameState {
             // Power grid totals
             total_generated_power: 0.0,
             total_consumed_power: 0.0,
+            // Notifications
+            notifications: VecDeque::new(),
+        };
+
+        // Add initial test notifications
+        // Note: Bevy's time typically starts at 0.0 on app launch.
+        Self::add_notification_internal(&mut new_state.notifications, "Colony established. Welcome, Commander!".to_string(), 0.0);
+        Self::add_notification_internal(&mut new_state.notifications, "Low power levels detected early in the simulation.".to_string(), 0.1);
+        Self::add_notification_internal(&mut new_state.notifications, "A strange signal was briefly detected from the nearby asteroid belt.".to_string(), 0.2);
+
+        new_state
+    }
+}
+
+impl GameState {
+    // Internal helper for adding notifications, usable by default()
+    fn add_notification_internal(notifications_vec: &mut VecDeque<NotificationEvent>, message: String, timestamp: f64) {
+        notifications_vec.push_front(NotificationEvent {
+            message,
+            timestamp,
+        });
+        if notifications_vec.len() > 20 {
+            notifications_vec.pop_back();
         }
     }
 }
+
+pub fn add_notification(game_state: &mut GameState, message: String, current_time_seconds: f64) {
+    GameState::add_notification_internal(&mut game_state.notifications, message, current_time_seconds);
+    println!("[{:.1}] Notification: {}", current_time_seconds, game_state.notifications.front().unwrap().message);
+}
+
 
 // --- Happiness Logic ---
 
