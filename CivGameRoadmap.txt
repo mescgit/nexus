@@ -1,0 +1,154 @@
+Nexus Core: Colony Manager - Solo Incremental Game Roadmap (Rust Edition)
+
+Core Concept: A single-player colony management game developed in Rust. The player, as the Colony Director, uses a sophisticated "Command Interface" (formerly tablet) to manage a foundational "Operations Hub" (formerly Base/Station) and develop thriving "Habitation Sectors" (formerly Cities). The goal is to achieve "Legacy Structures" (formerly Wonders) and advance through distinct "Development Phases."
+
+Phase 1: Core Engine, UI Foundation, & Foundational Infrastructure (Months 1-6)
+Rust Focus: Establish core data structures, basic game loop, and UI bindings. Leverage Rust's strong typing and ecosystem for a solid foundation.
+
+    Objective: Establish the Rust game engine, Command Interface framework, core data structures with original naming, and the initial "Operations Hub" layer.
+    Key Tasks:
+        Game Design Document (GDD) - IP Creation:
+            Worldbuilding & Naming:
+                Finalize game title (e.g., "Nexus Core: Colony Manager").
+                Develop original lore, theme (e.g., post-Earth colonization, alien world terraforming, corporate outpost).
+                Rename ALL elements:
+                    "Mankind" -> "Nexus Core" (or chosen title)
+                    "Settlers/Crew" -> "Inhabitants" (general populace), "Specialists" (workers)
+                    "Base/Station" -> "Operations Hub"
+                    "City" -> "Habitation Sector"
+                    "City Hall" -> "Administrative Spire" (Tiers: Command Post, Sector HQ, Nexus Spire)
+                    "Urban-uX" -> "Development Phase (DP1, DP2, DP3)"
+                    Resources (Iron, Copper are fine, but Bounatium, Larium, etc. need new names like "Xylos Crystals," "HyperAlloy," "Quantium Ore"). For now, "Tier 1/2/3 Exotic Materials."
+                    Building names (e.g., "Policlinic" -> "Wellness Post," "Sky Tower" -> "Arcology Spire," "Factory" -> "Fabricator," "Mine" -> "Extractor," "Farm" -> "Bio-Dome," "Laboratory" -> "Research Institute," "Wonder" -> "Legacy Structure").
+            Detail the "Command Interface" (UI) concept.
+            Outline core progression through Development Phases and Legacy Structures.
+        Technology Stack & Rust Setup:
+            Game Engine/Framework (Rust): Choose a suitable Rust game engine/framework (e.g., Bevy, Fyrox) or a more UI-focused library stack (e.g., egui, iced with wgpu for rendering if a full engine isn't needed for this UI-heavy game).
+            Set up Rust project, dependency management (Cargo).
+            Establish coding standards and project structure.
+        UI/UX Prototyping - The "Command Interface":
+            Develop basic interactive mockups/prototypes of main screens using chosen Rust UI library.
+            Screens: Hub Overview, Sector Overview, Resource Management, Construction Queues, Research Interface, Legacy Structure status.
+        Core Data Structures (Rust):
+            Implement structs and enums for all renamed buildings, resources, Inhabitants, Specialists, etc., using the detailed stats from provided documents ().   
+
+            Strongly-typed resource IDs and building IDs.
+        Initial Building System - Operations Hub Layer:
+            Player starts by establishing an "Operations Hub." This provides initial power, some Inhabitant capacity (basic quarters), and resource storage.
+            Implement construction of:
+                Extractors: Generate Tier 1 resources (e.g., "Ferrocrete Ore," "Cuprum Deposits"). Rate based on level/number and abstract "deposit richness." Require power.
+                Bio-Domes: Produce "Nutrient Paste" (Food). Rate based on level/number. Stored in Hub/Storage Silos.
+                Power Relays: (Formerly Generators) Increase power output for the Hub.
+                Storage Silos: (Formerly Warehouses) Increase resource storage linked to the Hub.
+            Resource costs and exponential scaling for these buildings.
+        Basic Resource & Power Management (Rust Logic):
+            Core logic for tracking production, consumption, storage limits.
+            Power balance calculations.
+            UI displays for these metrics.
+        Research Institute & Tech Progression - Initial Pass:
+            Implement the "Research Institute" building.
+            Basic tech tree UI. Researching initial techs (e.g., "Basic Construction Protocols," "Efficient Extraction") takes time and possibly resources, unlocking early Hub and Habitation Sector buildings.
+        Save/Load System: Utilize Rust's serialization libraries (e.g., serde) for robust save/load functionality.
+
+Phase 2: Habitation Sector Development & Core Gameplay Loops (Months 7-14)
+Rust Focus: Implement complex simulation logic, inter-system communication (Hub <-> Sector), and more sophisticated UI interactions.
+
+    Objective: Implement the "Habitation Sector" layer, Inhabitant growth, needs, happiness, and the functional link between the Operations Hub and Habitation Sectors.
+    Key Tasks:
+        Administrative Spire & Development Phases:
+            Implement "Administrative Spire" construction (Command Post, Sector HQ, Nexus Spire). Requires power.
+            Spire upgrades unlock Development Phases (DP1, DP2, DP3) for Habitation Sector buildings.   
+
+    Administrative Spire must be "linked" to an Operations Hub/Storage Silo for Nutrient Paste supply.
+
+Inhabitant, Housing & Specialist Mechanics (Habitation Sector):
+
+    Implement Habitation structures (e.g., "Basic Dwellings," "Community Blocks," "Arcology Spires").   
+
+    Inhabitant population grows to fill available housing, influenced by happiness, food, and Legacy Structure bonuses.
+    "Specialists" drawn from Inhabitant pool for service/industrial roles.
+
+Citizen Needs & Habitation Sector Services:
+
+    Implement all service buildings with new names (e.g., "Wellness Posts," "Security Stations," "Learning Centers," "Recreation Domes," "Spiritual Sanctuaries") with "Influence Radius" (formerly Influenced people) and "Specialist" needs.   
+
+Implement Sector-level "Commercial Zones" and "Light Industry" buildings for jobs and "Civic Index" (formerly Social Class).  
+
+Happiness System - Full Implementation:
+
+    Detailed happiness model based on Nutrient Paste supply, service coverage, housing, employment, etc.   
+
+    Incorporate morale bonuses from Legacy Structures.
+    UI dashboards for happiness.
+
+Fabricators & Processing Plants (Operations Hub Layer):
+
+    Implement "Fabricators": consume resources from Hub/Silos to produce "Manufactured Goods" or "Advanced Components" needed for higher DP buildings or Legacy Structures.
+    Implement "Processing Plants" (formerly Refineries): act as prerequisite unlocks or passive processors for certain advanced materials.
+
+Economic Model - "Credits" (or new currency name like "Nexus Bonds") & Upkeep:
+
+    Currency costs for all construction/research.
+    "Operational Costs" (formerly Rent) for relevant service buildings.   
+
+            Income generation (e.g., from Commercial Zones, Legacy Structure bonuses).
+        UI Enhancements for Sector & Hub Management:
+            Clear UI flows for managing both layers.
+            Advanced graphs and data visualizations (consider Rust plotting libraries or custom drawing).
+
+Phase 3: Legacy Structures, Advanced Progression & Balancing (Months 15-24)
+Rust Focus: Handle complex game state interactions, advanced calculations for balancing, and ensure performance with large amounts of simulated data.
+
+    Objective: Implement the "Legacy Structure" system, advanced technologies, refine all interconnected systems, and balance for long-term engagement.
+    Key Tasks:
+        Legacy Structure System Implementation:
+            Allow construction of tiered Legacy Structures (e.g., "Genesis Monument," "Unity Beacon," "Stellar Forge") in sequence. These are major end-game objectives.
+            Implement their unique effects: increased Habitation Sector limits (or equivalent major buffs), income boosts, happiness increases, Inhabitant growth rate bonuses.
+            Building the final Legacy Structure unlocks "Apex Technologies" (formerly Wonder-Technology) – the ultimate research tier.
+        Advanced Research & Technologies:
+            Expand the Research Institute tech tree, including Apex Technologies.
+            Research unlocks highest-tier Hub and Sector buildings and powerful global upgrades.
+        Game Balancing - Holistic Approach:
+            Balance resource costs/generation across Hub and Sector layers.
+            Tune power generation vs. consumption.
+            Balance Nutrient Paste production vs. Inhabitant consumption.
+            Ensure Legacy Structure bonuses are impactful and goals are challenging but achievable.
+            Pacing of progression through Development Phases and Apex Technologies.
+            Refine exponential cost scaling.
+        Advanced Data Visualization & "Director's Console":
+            Sophisticated dashboards in the Command Interface: efficiency metrics, bottleneck analysis, predictive modeling.
+            "Automated Advisory System" providing contextual hints.
+        End-Game & Replayability:
+            Define what happens after achieving the final Legacy Structure and Apex Technologies.
+            Consider "New Directive" (New Game+) options with persistent unlocks or new starting conditions/challenges.
+        Tutorial, Help System & UI/UX Polish:
+            Comprehensive tutorial integrated into the Command Interface.
+            Contextual help for all renamed buildings and mechanics.
+            Final UI art style, sound effects, and ambient music.
+        Achievements & Long-Term Directives (Goals).
+
+Phase 4: Testing, Optimization & Release (Months 25-30)
+Rust Focus: Leverage Rust's performance characteristics for optimization. Rigorous testing of all systems.
+
+    Objective: Extensive testing, final balancing, performance optimization, and preparation for release.
+    Key Tasks:
+        Internal Alpha & Closed Beta Testing:
+            Focus on progression, balance, UI/UX clarity, bug detection.
+            Gather feedback on the new IP and naming.
+        Final Balancing & Bug Fixing based on feedback.
+        Performance Optimization:
+            Profile Rust code for bottlenecks.
+            Optimize data handling and calculations for large colonies.
+        Marketing & Store Page Preparation (Steam, etc.): Emphasize the unique theme and deep management gameplay.
+        Release!
+
+Key Considerations for Rust & Original IP:
+
+    Rust Learning Curve: If the team is new to Rust, factor in time for learning and adopting best practices.
+    Rust Ecosystem: Leverage existing Rust crates for UI, graphics (if any simple visuals are planned beyond UI), serialization, math, etc., to speed up development where appropriate.
+    IP Consistency: Maintain a consistent style and terminology for the new IP across all game elements. Create a "Lore & Naming Bible."
+    Modularity (Rust Traits & Generics): Design systems using Rust's traits and generics where possible to promote code reuse and flexibility, especially for different building types or resource behaviors.
+    Safety & Concurrency (Rust): While a single-player game might not heavily use concurrency, Rust's safety features can help prevent common bugs.
+    Focus on Data-Driven Design: Keep game balance parameters (building costs, production rates, happiness modifiers) in easily configurable files (e.g., RON, JSON, TOML) that the Rust application can load. This allows for easier iteration without recompiling.
+
+This revised roadmap provides a strong framework for building "Nexus Core: Colony Manager" (or your chosen title) in Rust, ensuring a unique game identity while retaining the deep, engaging mechanics that inspired the project.
