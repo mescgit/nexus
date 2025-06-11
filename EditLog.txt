@@ -1,5 +1,31 @@
 
 
+
+15
+
+feat: Implement Workforce System & Complete Major UI Overhaul
+
+This update introduces the foundational workforce mechanic, a core gameplay loop, and completes the major UI transformation to the "Nexus Command Interface" style. The game now has a more robust strategic layer and a professional, thematic UI.
+
+UI Overhaul:
+
+    The entire UI has been rebuilt to match the target "Nexus Command Interface" aesthetic, featuring a sleek, dark, semi-transparent theme.
+    The main layout is now organized into a top Status Ticker, a left-side App Drawer, and a central App Viewport.
+    The App Drawer buttons have been upgraded from text to use the custom image-based icons.
+    A new Colony Status panel has been implemented, featuring a diagnostic checklist for critical needs like housing and food.
+    The top Status Ticker now displays the current workforce allocation (Assigned / Total).
+    The Construction Panel now shows the number of inhabitants a building requires to operate.
+
+Gameplay & Backend Systems:
+
+    Workforce Mechanic: Core production and research buildings (Extractors, Bio-Domes, Research Institutes) now require inhabitants to function.
+    Automatic Staffing: A new workforce_assignment_system automatically assigns available inhabitants to unstaffed buildings. Buildings will not produce resources or conduct research unless they are staffed.
+    Dynamic Population Growth: The grow_inhabitants function has been updated. Population growth is now probabilistic and directly influenced by the colony_happiness score, creating a core feedback loop between inhabitant satisfaction and colony expansion.
+
+Code Health & Fixes:
+
+    Resolved numerous compilation errors, including a recurring E0716 borrow-checker issue in the UI ticker system and a missing dependency for the rand crate, resulting in a stable, runnable application.
+
 14
 
 Refactor Admin Spire Nutrient Paste linkage and UI

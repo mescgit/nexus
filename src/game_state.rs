@@ -1,6 +1,7 @@
 // src/game_state.rs
 
 use bevy::prelude::*;
+use rand::Rng; // Add this line
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -431,21 +432,52 @@ pub enum Tech {
 }
 
 #[derive(Component)]
-pub struct Extractor { pub power_consumption: u32, pub resource_type: ResourceType, pub extraction_rate: f32 } 
+pub struct Extractor {
+    pub power_consumption: u32,
+    pub resource_type: ResourceType,
+    pub extraction_rate: f32,
+    pub workforce_required: u32,
+    pub is_staffed: bool,
+}
 #[derive(Component)]
-pub struct BioDome { pub power_consumption: u32, pub production_rate: f32 } 
+pub struct BioDome {
+    pub power_consumption: u32,
+    pub production_rate: f32,
+    pub workforce_required: u32,
+    pub is_staffed: bool,
+}
 #[derive(Component)]
-pub struct PowerRelay { pub power_output: u32 }
+pub struct PowerRelay {
+    pub power_output: u32,
+}
 #[derive(Component)]
-pub struct StorageSilo { pub capacity: u32 }
+pub struct StorageSilo {
+    pub capacity: u32,
+}
 #[derive(Component)]
-pub struct ResearchInstitute { pub power_consumption: u32 } 
+pub struct ResearchInstitute {
+    pub power_consumption: u32,
+    pub workforce_required: u32,
+    pub is_staffed: bool,
+}
 #[derive(Component)]
-pub struct BasicDwelling { pub housing_capacity: u32 }
+pub struct BasicDwelling {
+    pub housing_capacity: u32,
+}
 #[derive(Component)]
-pub struct WellnessPost { pub health_capacity: u32, pub jobs_provided: u32 }
+pub struct WellnessPost {
+    pub health_capacity: u32,
+    pub jobs_provided: u32,
+    pub workforce_required: u32,
+    pub is_staffed: bool,
+}
 #[derive(Component)]
-pub struct SecurityStation { pub police_capacity: u32, pub jobs_provided: u32 }
+pub struct SecurityStation {
+    pub police_capacity: u32,
+    pub jobs_provided: u32,
+    pub workforce_required: u32,
+    pub is_staffed: bool,
+}
 
 #[derive(Component)]
 pub struct Fabricator {
@@ -473,13 +505,14 @@ pub struct GameState {
     pub tech_costs: HashMap<Tech, u32>, 
     pub habitation_structures: Vec<HabitationStructure>,
     pub total_inhabitants: u32,
+    pub assigned_workforce: u32,
     pub available_housing_capacity: u32,
     pub total_specialist_slots: u32, 
     pub assigned_specialists_total: u32,
     pub service_buildings: Vec<ServiceBuilding>,
     pub zones: Vec<Zone>,
-    pub civic_index: u32,
-    pub colony_happiness: f32,
+    pub civic_index: u32, 
+    pub colony_happiness: f32, 
     pub legacy_structure_happiness_bonus: f32,
     pub simulated_has_sufficient_nutrient_paste: bool, 
     pub fabricators: Vec<FabricatorData>, 
@@ -598,7 +631,8 @@ impl Default for GameState {
             research_progress: None,
             tech_costs,
             habitation_structures: Vec::new(),
-            total_inhabitants: 5, 
+            total_inhabitants: 5,
+            assigned_workforce: 0,
             available_housing_capacity: 0,
             total_specialist_slots: 0, 
             assigned_specialists_total: 0,
@@ -890,7 +924,6 @@ pub fn calculate_colony_happiness(game_state: &mut GameState) {
     happiness_score += (game_state.civic_index as f32 / 10.0).min(5.0);
 
     game_state.colony_happiness = happiness_score.clamp(0.0, 100.0);
-    println!("Colony Happiness updated to: {:.2}%", game_state.colony_happiness);
 }
 
 pub fn update_civic_index(game_state: &mut GameState) {
@@ -910,7 +943,6 @@ pub fn update_civic_index(game_state: &mut GameState) {
         }
     }
     game_state.civic_index = new_civic_index;
-    println!("Civic Index updated to: {}", game_state.civic_index);
 }
 
 static NEXT_ID: AtomicU32 = AtomicU32::new(0);
@@ -1030,19 +1062,11 @@ pub fn remove_habitation_structure(game_state: &mut GameState, structure_id: &st
 }
 
 pub fn grow_inhabitants(game_state: &mut GameState) {
-    if game_state.total_inhabitants < game_state.available_housing_capacity {
-        let growth_amount = 1; 
-        game_state.total_inhabitants += growth_amount;
-        println!("Inhabitants grew by {}. Total: {}", growth_amount, game_state.total_inhabitants);
-
-        for structure in game_state.habitation_structures.iter_mut() {
-            if game_state.total_inhabitants > structure.current_inhabitants { 
-                 if let Some(tier) = structure.available_tiers.get(structure.tier_index) {
-                    let can_house = tier.housing_capacity - structure.current_inhabitants;
-                    if can_house > 0 {
-                    }
-                 }
-            }
+    let growth_chance = (game_state.colony_happiness / 100.0).clamp(0.0, 1.0);
+    if rand::thread_rng().gen::<f32>() < growth_chance * 0.1 { // Lower base chance
+        if game_state.total_inhabitants < game_state.available_housing_capacity {
+            let growth_amount = 1; 
+            game_state.total_inhabitants += growth_amount;
         }
     }
 }
@@ -1345,7 +1369,6 @@ pub fn update_total_specialist_slots(game_state: &mut GameState) {
         }
     }
     game_state.total_specialist_slots = total_slots;
-    println!("Total specialist slots updated to: {}", game_state.total_specialist_slots);
 }
 
 pub struct GameLogicPlugin;
@@ -1356,7 +1379,8 @@ impl Plugin for GameLogicPlugin {
             .init_resource::<ColonyStats>()
             .init_resource::<GraphData>()
             .add_systems(FixedUpdate, (
-                game_tick_system,
+                workforce_assignment_system,
+                game_tick_system.after(workforce_assignment_system),
                 research_system,
                 grow_inhabitants_system.after(game_tick_system),
                 fabricator_production_tick_system.after(game_tick_system),
@@ -1462,6 +1486,65 @@ fn grow_inhabitants_system(mut game_state: ResMut<GameState>) {
     grow_inhabitants(&mut game_state);
 }
 
+fn workforce_assignment_system(
+    mut game_state: ResMut<GameState>,
+    mut extractors: Query<&mut Extractor>,
+    mut bio_domes: Query<&mut BioDome>,
+    mut research_institutes: Query<&mut ResearchInstitute>,
+    mut wellness_posts: Query<&mut WellnessPost>,
+    mut security_stations: Query<&mut SecurityStation>,
+) {
+    let required_workforce: u32 = extractors.iter().map(|e| e.workforce_required).sum::<u32>()
+        + bio_domes.iter().map(|b| b.workforce_required).sum::<u32>()
+        + research_institutes.iter().map(|ri| ri.workforce_required).sum::<u32>()
+        + wellness_posts.iter().map(|wp| wp.workforce_required).sum::<u32>()
+        + security_stations.iter().map(|ss| ss.workforce_required).sum::<u32>();
+    
+    game_state.assigned_workforce = required_workforce.min(game_state.total_inhabitants);
+    let mut available_workforce = game_state.assigned_workforce;
+
+    for mut extractor in &mut extractors {
+        if available_workforce >= extractor.workforce_required {
+            extractor.is_staffed = true;
+            available_workforce -= extractor.workforce_required;
+        } else {
+            extractor.is_staffed = false;
+        }
+    }
+    for mut dome in &mut bio_domes {
+        if available_workforce >= dome.workforce_required {
+            dome.is_staffed = true;
+            available_workforce -= dome.workforce_required;
+        } else {
+            dome.is_staffed = false;
+        }
+    }
+    for mut institute in &mut research_institutes {
+        if available_workforce >= institute.workforce_required {
+            institute.is_staffed = true;
+            available_workforce -= institute.workforce_required;
+        } else {
+            institute.is_staffed = false;
+        }
+    }
+    for mut post in &mut wellness_posts {
+        if available_workforce >= post.workforce_required {
+            post.is_staffed = true;
+            available_workforce -= post.workforce_required;
+        } else {
+            post.is_staffed = false;
+        }
+    }
+    for mut station in &mut security_stations {
+        if available_workforce >= station.workforce_required {
+            station.is_staffed = true;
+            available_workforce -= station.workforce_required;
+        } else {
+            station.is_staffed = false;
+        }
+    }
+}
+
 fn game_tick_system(
     mut game_state: ResMut<GameState>,
     power_relays: Query<&PowerRelay>,
@@ -1469,12 +1552,11 @@ fn game_tick_system(
     extractors: Query<&Extractor>,
     bio_domes: Query<&BioDome>,
     research_institutes: Query<&ResearchInstitute>,
-    _fabricators: Query<&Fabricator>, 
 ) {
     let total_power_generation: u32 = power_relays.iter().map(|pr| pr.power_output).sum();
-    let mut total_power_consumption: u32 = extractors.iter().map(|e| e.power_consumption).sum::<u32>()
-        + bio_domes.iter().map(|b| b.power_consumption).sum::<u32>()
-        + research_institutes.iter().map(|ri| ri.power_consumption).sum::<u32>();
+    let mut total_power_consumption: u32 = extractors.iter().filter(|e| e.is_staffed).map(|e| e.power_consumption).sum::<u32>()
+        + bio_domes.iter().filter(|b| b.is_staffed).map(|b| b.power_consumption).sum::<u32>()
+        + research_institutes.iter().filter(|ri| ri.is_staffed).map(|ri| ri.power_consumption).sum::<u32>();
 
     if let Some(spire) = &game_state.administrative_spire {
         if spire.current_tier_index < spire.available_tiers.len() {
@@ -1522,19 +1604,17 @@ fn game_tick_system(
 
     if enough_power_for_grid_consumers {
         let capacity = storage_silos.iter().map(|s| s.capacity).sum::<u32>() as f32; 
-        for dome in &bio_domes {
+        for dome in bio_domes.iter().filter(|d| d.is_staffed) {
             let amount = game_state.current_resources.entry(ResourceType::NutrientPaste).or_insert(0.0);
             *amount = (*amount + dome.production_rate).min(capacity);
         }
-        for extractor in &extractors {
+        for extractor in extractors.iter().filter(|e| e.is_staffed) {
             let amount = game_state.current_resources.entry(extractor.resource_type).or_insert(0.0);
             *amount = (*amount + extractor.extraction_rate).min(capacity);
         }
     }
     
-    // Update simulated_has_sufficient_nutrient_paste
     game_state.simulated_has_sufficient_nutrient_paste = game_state.current_resources.get(&ResourceType::NutrientPaste).unwrap_or(&0.0) > &0.0;
-
 }
 
 fn update_colony_stats_system(
@@ -1546,7 +1626,7 @@ fn update_colony_stats_system(
     stats.total_housing = game_state.available_housing_capacity; 
     stats.health_capacity = wellness_posts.iter().map(|p| p.health_capacity).sum();
     stats.police_capacity = security_stations.iter().map(|p| p.police_capacity).sum();
-    stats.total_jobs = game_state.total_specialist_slots; 
+    stats.total_jobs = game_state.assigned_workforce; 
     stats.happiness = game_state.colony_happiness;
     stats.credits = game_state.credits;
     stats.net_power = game_state.total_generated_power - game_state.total_consumed_power;
@@ -1554,7 +1634,7 @@ fn update_colony_stats_system(
 }
 
 fn research_system(mut game_state: ResMut<GameState>, query: Query<&ResearchInstitute>) {
-    if query.is_empty() { return; }
+    if query.iter().all(|ri| !ri.is_staffed) { return; }
     let mut completed_tech: Option<Tech> = None;
     if let Some((tech, progress)) = &game_state.research_progress {
         let required_progress = game_state.tech_costs[tech] as f32; 
