@@ -8,7 +8,7 @@ use std::collections::HashMap;
 
 // Import everything needed from game_state
 mod game_state;
-use game_state::{BuildingType as GameBuildingType, DevelopmentPhase};
+use game_state::{BuildingType as GameBuildingType, DevelopmentPhase, ServiceType};
 
 // --- Color & Style Constants ---
 const PANEL_BACKGROUND: Color = Color::rgba(0.02, 0.02, 0.05, 0.85);
@@ -81,6 +81,8 @@ struct ConstructionItemDetailsPanel;
 struct ConfirmBuildButton(GameBuildingType);
 #[derive(Component)]
 struct ConstructHabitationButton(usize); // usize is tier_index
+#[derive(Component)]
+struct ConstructServiceButton(ServiceType, usize); // ServiceType, tier_index
 
 
 // Colony Status Components
@@ -202,12 +204,29 @@ impl Plugin for UiPlugin {
                 update_construction_details_panel_system,
                 construction_interaction_system,
                 habitation_construction_system,
+                service_construction_system, // Added new system
                 update_colony_status_panel_system,
                 update_research_panel_system,
                 research_item_button_system,
                 update_research_details_panel_system,
                 initiate_research_button_system,
             ).chain());
+    }
+}
+
+fn service_construction_system(
+    mut interaction_query: Query<(&Interaction, &ConstructServiceButton), (Changed<Interaction>, With<Button>)>,
+    mut game_state: ResMut<GameState>,
+) {
+    for (interaction, button_data) in interaction_query.iter_mut() {
+        if *interaction == Interaction::Pressed {
+            let service_type = button_data.0;
+            let tier_index = button_data.1;
+            // Assuming add_service_building might take position as an Option in the future.
+            // For now, it's not used as per game_state.rs, but good to keep in mind.
+            game_state::add_service_building(&mut game_state, service_type, tier_index, None);
+            // Consider adding a notification here if desired, similar to other construction systems
+        }
     }
 }
 
@@ -745,7 +764,49 @@ fn update_construction_list_system(
                         }
                     },
                     ConstructionCategory::Services => {
-                         parent.spawn(TextBundle::from_section("Service construction coming soon.", TextStyle{color: LABEL_TEXT_COLOR, ..default()}));
+                        let service_types = [
+                            ServiceType::Wellness,
+                            ServiceType::Security,
+                            ServiceType::Education,
+                            ServiceType::Recreation,
+                            ServiceType::Spiritual,
+                        ];
+
+                        for service_type in service_types.iter() {
+                            let service_tiers = game_state::get_service_building_tiers(*service_type);
+                            if service_tiers.is_empty() {
+                                // This case should ideally not happen if services always have tiers
+                                parent.spawn(TextBundle::from_section(
+                                    format!("No tiers available for {:?}.", service_type),
+                                    TextStyle { color: LABEL_TEXT_COLOR, ..default() },
+                                ));
+                                continue;
+                            }
+
+                            for (tier_index, tier) in service_tiers.iter().enumerate() {
+                                // TODO: Replace with actual ConstructServiceButton(service_type, tier_index)
+                                // For now, create a generic button, actual component will be added later.
+                                let can_afford = game_state.credits >= tier.construction_credits_cost as f64;
+                                parent.spawn((
+                                    ButtonBundle {
+                                        style: Style {
+                                            width: Val::Percent(100.0),
+                                            padding: UiRect::all(Val::Px(8.0)),
+                                            margin: UiRect::bottom(Val::Px(4.0)),
+                                            ..default()
+                                        },
+                                        background_color: if can_afford { NORMAL_BUTTON.into() } else { DISABLED_BUTTON.into() },
+                                        ..default()
+                                    },
+                                    ConstructServiceButton(*service_type, tier_index)
+                                )).with_children(|p| {
+                                    p.spawn(TextBundle::from_section(
+                                        format!("{} - {} ({} Cr)", service_type.to_string(), tier.name, tier.construction_credits_cost),
+                                        TextStyle { font_size: 16.0, color: PRIMARY_TEXT_COLOR, ..default() }
+                                    ));
+                                });
+                            }
+                        }
                     }
                 }
             });
