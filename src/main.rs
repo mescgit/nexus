@@ -547,6 +547,16 @@ fn update_managed_structures_panel_system(
                 // --- Part 1: List of Zones (Buttons) ---
                 parent.spawn(TextBundle::from_section(
                     "Managed Zones List", // Changed title for clarity
+                    TextStyle {
+                        font_size: 16.0, // Restoring original style for title
+                        color: LABEL_TEXT_COLOR,
+                        ..default()
+                    },
+                ).with_style(Style { margin: UiRect::bottom(Val::Px(5.0)), ..default() }));
+
+                if game_state.zones.is_empty() {
+                    parent.spawn(TextBundle::from_section(
+                        "No zones established.",
                         TextStyle {
                             font_size: 14.0,
                             color: PRIMARY_TEXT_COLOR,
