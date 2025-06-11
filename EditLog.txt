@@ -1,5 +1,19 @@
 
 
+14
+
+Refactor Admin Spire Nutrient Paste linkage and UI
+
+Backend:
+- I removed the manual `link_spire_to_hub` function and the `is_linked_to_hub` field from the `AdministrativeSpire` struct in `game_state.rs`.
+- The `upgrade_administrative_spire` function now directly checks for the availability of `ResourceType::NutrientPaste` if an upgrade tier requires it, instead of relying on the removed boolean flag.
+- The `game_tick_system` now dynamically updates the `simulated_has_sufficient_nutrient_paste` flag in `GameState` based on current `NutrientPaste` resource levels. This makes the happiness calculation dependent on actual paste availability.
+
+UI:
+- The hover text for the `UpgradeSpireButton` in `main.rs` has been updated to inform you if Nutrient Paste is required for the next tier.
+- A new `AdminSpireStatusText` component and an associated system `update_admin_spire_status_system` were added to `main.rs`. This system displays the Administrative Spire's current tier, whether Nutrient Paste is currently available, and whether the next tier upgrade requires Nutrient Paste. This information is shown in the `ColonyStatusPanel`.
+
+Note: Unit tests for these changes were planned but could not be implemented due to a limitation with Rust test modules.
 
 
 
