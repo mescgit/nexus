@@ -801,7 +801,7 @@ fn update_construction_list_system(
                                     ConstructServiceButton(*service_type, tier_index)
                                 )).with_children(|p| {
                                     p.spawn(TextBundle::from_section(
-                                        format!("{} - {} ({} Cr)", service_type.to_string(), tier.name, tier.construction_credits_cost),
+                                        format!("{:?} - {} ({} Cr)", service_type, tier.name, tier.construction_credits_cost),
                                         TextStyle { font_size: 16.0, color: PRIMARY_TEXT_COLOR, ..default() }
                                     ));
                                 });
