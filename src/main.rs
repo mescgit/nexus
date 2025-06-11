@@ -19,6 +19,7 @@ const PRESSED_BUTTON: Color = Color::rgba(0.35, 0.75, 0.35, 1.0);
 const ACTIVE_BUTTON: Color = Color::rgba(0.1, 0.4, 0.8, 1.0);
 const PRIMARY_TEXT_COLOR: Color = Color::rgba(0.9, 0.9, 0.9, 0.9);
 const LABEL_TEXT_COLOR: Color = Color::rgba(0.7, 0.7, 0.8, 0.9);
+const DISABLED_BUTTON: Color = Color::rgba(0.3, 0.1, 0.1, 0.8);
 
 // --- UI Marker Components ---
 
@@ -57,6 +58,15 @@ struct NotificationsPanel;
 struct AnalyticsGraphPanel;
 #[derive(Component)]
 struct GraphArea;
+#[derive(Component)]
+struct AdminSpireInfoPanel;
+#[derive(Component)]
+struct AdminSpireTierText;
+#[derive(Component)]
+struct ConstructSpireButton;
+#[derive(Component)]
+struct UpgradeSpireButton;
+
 
 // Construction Components
 #[derive(Component)]
@@ -69,6 +79,9 @@ struct ConstructionItemButton(GameBuildingType);
 struct ConstructionItemDetailsPanel;
 #[derive(Component)]
 struct ConfirmBuildButton(GameBuildingType);
+#[derive(Component)]
+struct ConstructHabitationButton(usize); // usize is tier_index
+
 
 // Colony Status Components
 #[derive(Component, Debug, Clone, Copy)]
@@ -105,7 +118,7 @@ pub enum ConstructionCategory {
     #[default]
     Operations,
     Habitation,
-    Legacy,
+    Services,
 }
 #[derive(Resource, Default)]
 pub struct CurrentConstructionCategory(pub ConstructionCategory);
@@ -145,9 +158,6 @@ fn get_building_metadata() -> HashMap<GameBuildingType, BuildingMetadata> {
     meta.insert(GameBuildingType::ResearchInstitute, BuildingMetadata { name: "Research Institute", category: ConstructionCategory::Operations, required_tech: Some(Tech::BasicConstructionProtocols), required_dp: None, workforce_required: 15 });
     meta.insert(GameBuildingType::Fabricator, BuildingMetadata { name: "Fabricator", category: ConstructionCategory::Operations, required_tech: Some(Tech::BasicConstructionProtocols), required_dp: None, workforce_required: 20 });
     meta.insert(GameBuildingType::ProcessingPlant, BuildingMetadata { name: "Processing Plant", category: ConstructionCategory::Operations, required_tech: Some(Tech::BasicConstructionProtocols), required_dp: None, workforce_required: 20 });
-    meta.insert(GameBuildingType::BasicDwelling, BuildingMetadata { name: "Basic Dwelling", category: ConstructionCategory::Habitation, required_tech: Some(Tech::BasicConstructionProtocols), required_dp: None, workforce_required: 0 });
-    meta.insert(GameBuildingType::WellnessPost, BuildingMetadata { name: "Wellness Post", category: ConstructionCategory::Habitation, required_tech: Some(Tech::BasicConstructionProtocols), required_dp: None, workforce_required: 8 });
-    meta.insert(GameBuildingType::SecurityStation, BuildingMetadata { name: "Security Station", category: ConstructionCategory::Habitation, required_tech: Some(Tech::BasicConstructionProtocols), required_dp: None, workforce_required: 8 });
     meta
 }
 
@@ -183,12 +193,15 @@ impl Plugin for UiPlugin {
                 manage_app_panels_visibility,
                 update_status_ticker_system,
                 update_dashboard_notifications_system,
+                update_admin_spire_panel_system,
+                admin_spire_button_interaction_system,
                 draw_graph_gizmos,
                 construction_category_tab_system,
                 update_construction_list_system,
                 construction_item_interaction_system,
                 update_construction_details_panel_system,
                 construction_interaction_system,
+                habitation_construction_system,
                 update_colony_status_panel_system,
                 update_research_panel_system,
                 research_item_button_system,
@@ -309,10 +322,60 @@ fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                 viewport.spawn((NodeBundle { style: Style {display: Display::Flex, width: Val::Percent(100.0), height:Val::Percent(100.0), flex_direction: FlexDirection::Column, ..default()}, ..default() }, DashboardPanel))
                 .with_children(|dash| {
                     dash.spawn(TextBundle::from_section("NEXUS DASHBOARD", TextStyle{font_size: 28.0, color: BORDER_COLOR, ..default()}).with_style(Style{margin: UiRect::bottom(Val::Px(10.0)), ..default()}));
-                    dash.spawn((NodeBundle { style: Style {width: Val::Percent(100.0), height: Val::Percent(30.0), flex_direction: FlexDirection::Column, padding: UiRect::all(Val::Px(5.0)), border: UiRect::all(Val::Px(1.0)), ..default()}, background_color: Color::rgba(0.0,0.0,0.0,0.3).into(), border_color: BORDER_COLOR.into(), ..default()}, NotificationsPanel));
-                    dash.spawn((NodeBundle { style: Style {width: Val::Percent(100.0), flex_grow: 1.0, margin: UiRect::top(Val::Px(10.0)), border: UiRect::all(Val::Px(1.0)), ..default()}, background_color: Color::rgba(0.0,0.0,0.0,0.3).into(), border_color: BORDER_COLOR.into(), ..default()}, AnalyticsGraphPanel))
-                    .with_children(|graph_panel| {
-                        graph_panel.spawn((NodeBundle{style: Style{width: Val::Percent(100.0), height:Val::Percent(100.0), ..default()}, ..default()}, GraphArea));
+                    
+                    dash.spawn(NodeBundle {
+                        style: Style {
+                            flex_direction: FlexDirection::Row,
+                            width: Val::Percent(100.0),
+                            height: Val::Percent(100.0),
+                            ..default()
+                        },
+                        ..default()
+                    }).with_children(|main_dash_area| {
+                        // Left side of dashboard
+                        main_dash_area.spawn(NodeBundle {
+                            style: Style {
+                                flex_direction: FlexDirection::Column,
+                                flex_grow: 1.0,
+                                height: Val::Percent(100.0),
+                                ..default()
+                            },
+                            ..default()
+                        }).with_children(|left_col| {
+                            left_col.spawn((NodeBundle { style: Style {width: Val::Percent(100.0), height: Val::Percent(30.0), flex_direction: FlexDirection::Column, padding: UiRect::all(Val::Px(5.0)), border: UiRect::all(Val::Px(1.0)), ..default()}, background_color: Color::rgba(0.0,0.0,0.0,0.3).into(), border_color: BORDER_COLOR.into(), ..default()}, NotificationsPanel));
+                            left_col.spawn((NodeBundle { style: Style {width: Val::Percent(100.0), flex_grow: 1.0, margin: UiRect::top(Val::Px(10.0)), border: UiRect::all(Val::Px(1.0)), ..default()}, background_color: Color::rgba(0.0,0.0,0.0,0.3).into(), border_color: BORDER_COLOR.into(), ..default()}, AnalyticsGraphPanel))
+                            .with_children(|graph_panel| {
+                                graph_panel.spawn((NodeBundle{style: Style{width: Val::Percent(100.0), height:Val::Percent(100.0), ..default()}, ..default()}, GraphArea));
+                            });
+                        });
+                        // Right side of dashboard
+                        main_dash_area.spawn(NodeBundle {
+                             style: Style {
+                                flex_direction: FlexDirection::Column,
+                                width: Val::Px(300.0),
+                                height: Val::Percent(100.0),
+                                margin: UiRect::left(Val::Px(10.0)),
+                                padding: UiRect::all(Val::Px(5.0)),
+                                border: UiRect::all(Val::Px(1.0)),
+                                ..default()
+                             },
+                             background_color: Color::rgba(0.0,0.0,0.0,0.3).into(),
+                             border_color: BORDER_COLOR.into(),
+                             ..default()
+                        }).with_children(|right_col| {
+                            right_col.spawn(TextBundle::from_section("SYSTEM CONTROL", TextStyle{font_size: 18.0, color: LABEL_TEXT_COLOR, ..default()}));
+                            right_col.spawn((NodeBundle {
+                                style: Style {
+                                    flex_direction: FlexDirection::Column,
+                                    margin: UiRect::top(Val::Px(10.0)),
+                                    padding: UiRect::all(Val::Px(5.0)),
+                                    border: UiRect::all(Val::Px(1.0)),
+                                    ..default()
+                                },
+                                border_color: BORDER_COLOR.into(),
+                                ..default()
+                            }, AdminSpireInfoPanel));
+                        });
                     });
                 });
 
@@ -321,7 +384,7 @@ fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                     con.spawn(TextBundle::from_section("CONSTRUCTION", TextStyle{font_size: 28.0, color: BORDER_COLOR, ..default()}).with_style(Style{margin: UiRect::bottom(Val::Px(10.0)), ..default()}));
                     con.spawn(NodeBundle { style: Style { flex_direction: FlexDirection::Row, margin: UiRect::bottom(Val::Px(5.0)), ..default()}, ..default()})
                     .with_children(|tabs|{
-                        let categories = [ConstructionCategory::Operations, ConstructionCategory::Habitation, ConstructionCategory::Legacy];
+                        let categories = [ConstructionCategory::Operations, ConstructionCategory::Habitation, ConstructionCategory::Services];
                         for category in categories {
                             tabs.spawn((ButtonBundle {style: Style{padding: UiRect::all(Val::Px(8.0)), margin: UiRect::horizontal(Val::Px(5.0)), ..default()}, background_color: NORMAL_BUTTON.into(), ..default()}, ConstructionCategoryTab(category)))
                             .with_children(|button| { button.spawn(TextBundle::from_section(format!("{:?}", category), TextStyle {font_size: 16.0, color: PRIMARY_TEXT_COLOR, ..default()})); });
@@ -472,7 +535,7 @@ fn update_dashboard_notifications_system(
             commands.entity(panel_entity).despawn_descendants();
             commands.entity(panel_entity).with_children(|parent| {
                 parent.spawn(TextBundle::from_section("EVENT LOG", TextStyle{font_size: 18.0, color: LABEL_TEXT_COLOR, ..default()}));
-                for event in game_state.notifications.iter().take(10) {
+                for event in game_state.notifications.iter().take(5) {
                     parent.spawn(TextBundle::from_section(
                         format!("[{:.1}] {}", event.timestamp, event.message),
                         TextStyle { font_size: 14.0, color: PRIMARY_TEXT_COLOR, ..default() }
@@ -482,6 +545,87 @@ fn update_dashboard_notifications_system(
         }
     }
 }
+
+fn update_admin_spire_panel_system(
+    game_state: Res<GameState>,
+    panel_query: Query<Entity, With<AdminSpireInfoPanel>>,
+    mut commands: Commands,
+) {
+    if !game_state.is_changed() { return; }
+
+    if let Ok(panel_entity) = panel_query.get_single() {
+        commands.entity(panel_entity).despawn_descendants();
+
+        commands.entity(panel_entity).with_children(|parent| {
+            parent.spawn(TextBundle::from_section("Administrative Spire", TextStyle{font_size: 16.0, color: PRIMARY_TEXT_COLOR, ..default()}));
+
+            if let Some(spire) = &game_state.administrative_spire {
+                let current_tier = &spire.available_tiers[spire.current_tier_index];
+                parent.spawn((
+                    TextBundle::from_section(format!("Tier: {}", current_tier.name), TextStyle{font_size: 14.0, color: LABEL_TEXT_COLOR, ..default()}),
+                    AdminSpireTierText,
+                ));
+                 parent.spawn(TextBundle::from_section(format!("Phase: {:?}", game_state.current_development_phase), TextStyle{font_size: 14.0, color: LABEL_TEXT_COLOR, ..default()}));
+
+                if spire.current_tier_index < spire.available_tiers.len() - 1 {
+                    let next_tier = &spire.available_tiers[spire.current_tier_index + 1];
+                    let can_afford = game_state.credits >= next_tier.upgrade_credits_cost as f64;
+                    parent.spawn((
+                        ButtonBundle {
+                            style: Style { width: Val::Percent(100.0), padding: UiRect::all(Val::Px(5.0)), margin: UiRect::top(Val::Px(10.0)), ..default()},
+                            background_color: if can_afford { NORMAL_BUTTON.into() } else { DISABLED_BUTTON.into() },
+                            ..default()
+                        },
+                        UpgradeSpireButton
+                    )).with_children(|btn| {
+                        btn.spawn(TextBundle::from_section(
+                            format!("Upgrade to {}\n({} Cr)", next_tier.name, next_tier.upgrade_credits_cost), 
+                            TextStyle{font_size: 14.0, color: PRIMARY_TEXT_COLOR, ..default()}
+                        ));
+                    });
+                } else {
+                    parent.spawn(TextBundle::from_section("Max Tier Reached", TextStyle{font_size: 14.0, color: Color::CYAN, ..default()}));
+                }
+            } else {
+                 parent.spawn((
+                    TextBundle::from_section("Status: Not Constructed", TextStyle{font_size: 14.0, color: LABEL_TEXT_COLOR, ..default()}),
+                    AdminSpireTierText
+                ));
+                let can_afford = game_state.credits >= 1000.0; // Hardcoded from game_state
+                 parent.spawn((
+                    ButtonBundle {
+                        style: Style { width: Val::Percent(100.0), padding: UiRect::all(Val::Px(5.0)), margin: UiRect::top(Val::Px(10.0)), ..default()},
+                        background_color: if can_afford { NORMAL_BUTTON.into() } else { DISABLED_BUTTON.into() },
+                        ..default()
+                    },
+                    ConstructSpireButton
+                )).with_children(|btn| {
+                    btn.spawn(TextBundle::from_section(
+                        "Construct (1000 Cr)",
+                        TextStyle{font_size: 14.0, color: PRIMARY_TEXT_COLOR, ..default()}
+                    ));
+                });
+            }
+        });
+    }
+}
+
+fn admin_spire_button_interaction_system(
+    mut game_state: ResMut<GameState>,
+    mut interaction_query: ParamSet<(
+        Query<&Interaction, (Changed<Interaction>, With<ConstructSpireButton>)>,
+        Query<&Interaction, (Changed<Interaction>, With<UpgradeSpireButton>)>,
+    )>,
+) {
+    if let Ok(Interaction::Pressed) = interaction_query.p0().get_single() {
+        game_state::construct_administrative_spire(&mut game_state);
+    }
+
+    if let Ok(Interaction::Pressed) = interaction_query.p1().get_single() {
+        game_state::upgrade_administrative_spire(&mut game_state);
+    }
+}
+
 
 trait GraphableFn: Fn(&ColonyStats) -> f32 + Send + Sync {}
 impl<F: Fn(&ColonyStats) -> f32 + Send + Sync> GraphableFn for F {}
@@ -545,38 +689,83 @@ fn construction_category_tab_system(
 fn update_construction_list_system(
     current_app: Res<CurrentApp>,
     current_category: Res<CurrentConstructionCategory>,
+    game_state: Res<GameState>,
     mut item_list_panel_query: Query<Entity, With<ConstructionItemListPanel>>,
     mut commands: Commands,
 ) {
     if current_app.0 != AppType::Construction { return; }
 
-    if current_category.is_changed() || (current_app.is_changed() && current_app.0 == AppType::Construction) {
+    if current_category.is_changed() || (current_app.is_changed() && current_app.0 == AppType::Construction) || game_state.is_changed() {
         if let Ok(panel_entity) = item_list_panel_query.get_single_mut() {
             commands.entity(panel_entity).despawn_descendants(); 
-            let building_meta_map = get_building_metadata();
-            
-            let items: Vec<_> = ALL_BUILDING_TYPES.iter()
-                .filter_map(|bt| building_meta_map.get(bt).map(|meta| (bt, meta)))
-                .filter(|(_, meta)| meta.category == current_category.0)
-                .collect();
 
             commands.entity(panel_entity).with_children(|parent| {
-                if items.is_empty() {
-                    parent.spawn(TextBundle::from_section("No items in this category.", TextStyle{color: LABEL_TEXT_COLOR, ..default()}));
-                    return;
-                }
-                for (building_type, meta) in items {
-                     parent.spawn((
-                        ButtonBundle { style: Style { width: Val::Percent(100.0), padding: UiRect::all(Val::Px(8.0)), margin: UiRect::bottom(Val::Px(4.0)), ..default() }, background_color: NORMAL_BUTTON.into(), ..default()},
-                        ConstructionItemButton(*building_type) 
-                    )).with_children(|p| {
-                        p.spawn(TextBundle::from_section(meta.name, TextStyle { font_size: 16.0, color: PRIMARY_TEXT_COLOR, ..default() }));
-                    });
+                match current_category.0 {
+                    ConstructionCategory::Operations => {
+                        let building_meta_map = get_building_metadata();
+                        let items: Vec<_> = ALL_BUILDING_TYPES.iter()
+                            .filter_map(|bt| building_meta_map.get(bt).map(|meta| (bt, meta)))
+                            .filter(|(_, meta)| meta.category == current_category.0)
+                            .filter(|(_, meta)| {
+                                meta.required_dp.is_none() || meta.required_dp.unwrap() <= game_state.current_development_phase
+                            })
+                            .collect();
+
+                        if items.is_empty() {
+                            parent.spawn(TextBundle::from_section("No items in this category.", TextStyle{color: LABEL_TEXT_COLOR, ..default()}));
+                            return;
+                        }
+
+                        for (building_type, meta) in items {
+                            parent.spawn((
+                                ButtonBundle { style: Style { width: Val::Percent(100.0), padding: UiRect::all(Val::Px(8.0)), margin: UiRect::bottom(Val::Px(4.0)), ..default() }, background_color: NORMAL_BUTTON.into(), ..default()},
+                                ConstructionItemButton(*building_type) 
+                            )).with_children(|p| {
+                                p.spawn(TextBundle::from_section(meta.name, TextStyle { font_size: 16.0, color: PRIMARY_TEXT_COLOR, ..default() }));
+                            });
+                        }
+                    },
+                    ConstructionCategory::Habitation => {
+                        let habitation_tiers = game_state::get_habitation_tiers();
+                        for (tier_index, tier) in habitation_tiers.iter().enumerate() {
+                            let can_afford = game_state.credits >= tier.construction_credits_cost as f64;
+                            parent.spawn((
+                                ButtonBundle {
+                                    style: Style { width: Val::Percent(100.0), padding: UiRect::all(Val::Px(8.0)), margin: UiRect::bottom(Val::Px(4.0)), ..default() },
+                                    background_color: if can_afford { NORMAL_BUTTON.into() } else { DISABLED_BUTTON.into() },
+                                    ..default()
+                                },
+                                ConstructHabitationButton(tier_index)
+                            )).with_children(|p| {
+                                p.spawn(TextBundle::from_section(
+                                    format!("{} ({} Cr)", tier.name, tier.construction_credits_cost), 
+                                    TextStyle { font_size: 16.0, color: PRIMARY_TEXT_COLOR, ..default() }
+                                ));
+                            });
+                        }
+                    },
+                    ConstructionCategory::Services => {
+                         parent.spawn(TextBundle::from_section("Service construction coming soon.", TextStyle{color: LABEL_TEXT_COLOR, ..default()}));
+                    }
                 }
             });
         }
     }
 }
+
+
+fn habitation_construction_system(
+    mut interaction_query: Query<(&Interaction, &ConstructHabitationButton)>,
+    mut game_state: ResMut<GameState>,
+) {
+    for (interaction, button) in interaction_query.iter_mut() {
+        if *interaction == Interaction::Pressed {
+            let tier_index = button.0;
+            game_state::add_habitation_structure(&mut game_state, tier_index);
+        }
+    }
+}
+
 
 fn construction_item_interaction_system(
     mut selected_building_res: ResMut<SelectedBuilding>,
@@ -594,7 +783,7 @@ fn construction_item_interaction_system(
         let is_selected = selected_building_res.0 == Some(building_type);
 
         if is_selected { *bg_color = ACTIVE_BUTTON.into(); } 
-        else if !can_afford(building_type) { *bg_color = Color::rgba(0.5, 0.1, 0.1, 0.8).into(); }
+        else if !can_afford(building_type) { *bg_color = DISABLED_BUTTON.into(); }
         else { *bg_color = NORMAL_BUTTON.into(); }
 
         if *interaction == Interaction::Pressed {
@@ -655,16 +844,33 @@ fn construction_interaction_system(
         if let Ok(Interaction::Pressed) = interaction_query.get_single() {
              let meta = get_building_metadata().get(&building_type).unwrap().clone();
              let costs = game_state.building_costs.get(&building_type).unwrap().clone();
-             for (res, cost) in &costs { *game_state.current_resources.get_mut(res).unwrap() -= cost; }
+             
+             let can_afford = costs.iter().all(|(res, &req)| game_state.current_resources.get(res).unwrap_or(&0.0) >= &req);
+             if !can_afford {
+                 game_state::add_notification(&mut game_state.notifications, format!("Insufficient materials for {:?}.", building_type), time.elapsed_seconds_f64());
+                 return;
+             }
+
+             for (res, cost) in &costs { 
+                 *game_state.current_resources.get_mut(res).unwrap() -= cost; 
+             }
              
              match building_type {
                 GameBuildingType::Extractor => { commands.spawn(game_state::Extractor { power_consumption: 15, resource_type: ResourceType::FerrocreteOre, extraction_rate: 2.5, workforce_required: meta.workforce_required, is_staffed: false }); }
                 GameBuildingType::BioDome => { commands.spawn(game_state::BioDome { power_consumption: 10, production_rate: 5.0, workforce_required: meta.workforce_required, is_staffed: false }); }
                 GameBuildingType::PowerRelay => { commands.spawn(game_state::PowerRelay { power_output: 50 }); }
                 GameBuildingType::ResearchInstitute => { commands.spawn(game_state::ResearchInstitute { power_consumption: 5, workforce_required: meta.workforce_required, is_staffed: false }); }
-                _ => { game_state::add_notification(&mut game_state, format!("Construction logic for {:?} not fully ported.", building_type), time.elapsed_seconds_f64()); }
+                GameBuildingType::Fabricator => {
+                    game_state::add_fabricator(&mut game_state, 0); 
+                }
+                GameBuildingType::ProcessingPlant => {
+                    game_state::add_processing_plant(&mut game_state, 0);
+                }
+                GameBuildingType::StorageSilo => {
+                    commands.spawn(game_state::StorageSilo { capacity: 500 });
+                }
              }
-             game_state::add_notification(&mut game_state, format!("Construction started: {:?}", building_type), time.elapsed_seconds_f64());
+             game_state::add_notification(&mut game_state.notifications, format!("Construction started: {:?}", building_type), time.elapsed_seconds_f64());
         }
      }
 }

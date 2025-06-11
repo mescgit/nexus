@@ -1,3 +1,24 @@
+16
+
+feat: Implement Spire UI and Refactor Construction System
+
+This commit introduces a major UI feature for core progression and begins a foundational refactor of the construction system to support tiered, data-driven buildings, moving away from the legacy component-based approach.
+Key Changes:
+
+- **Core Progression UI:**
+    - A new UI panel has been added to the Dashboard for constructing and upgrading the Administrative Spire.
+    - This panel provides clear, dynamic feedback on costs, requirements, and current spire tier.
+- **Gameplay Loop Integration:**
+    - Upgrading the Administrative Spire is now functional from the UI and correctly unlocks new `DevelopmentPhase`s (DP1, DP2, etc.).
+    - The Construction panel has been updated to filter the list of buildable items based on the colony's current `DevelopmentPhase`, creating a tangible reward for progression.
+- **Construction System Refactor (Phase 1):**
+    - Began the shift away from simple, component-based buildings to the more robust, tiered `GameState` structs.
+    - Replaced the legacy "Basic Dwelling" build option with a dynamic UI that lists all available `HabitationStructure` tiers (e.g., "Basic Dwellings," "Community Blocks").
+    - Removed old build entries for `WellnessPost` and `SecurityStation` from the UI to eliminate redundancy and pave the way for their proper, tiered implementation under the "Services" tab.
+- **Code Health & Stability:**
+    - Resolved a critical borrow-checker error (E0499) in `upgrade_administrative_spire` by refactoring the function's logic.
+    - Fixed a non-exhaustive match error (E0004) by implementing the missing construction logic for the `StorageSilo`.
+    - Cleaned up various compiler warnings for unused variables and imports across both `main.rs` and `game_state.rs`.
 
 
 
