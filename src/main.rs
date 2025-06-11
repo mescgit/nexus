@@ -643,26 +643,30 @@ fn update_managed_structures_panel_system(
                 }
 
                 // --- Part 2: Details of Selected Zone ---
+                // Unconditionally spawn the ZoneDetailsPanel container, then conditionally populate it.
+                let details_panel_entity = parent.spawn((
+                    NodeBundle {
+                        style: Style {
+                            flex_direction: FlexDirection::Column,
+                            margin: UiRect::top(Val::Px(10.0)),
+                            padding: UiRect::all(Val::Px(5.0)),
+                            border: UiRect::all(Val::Px(1.0)),
+                            border_color: Color::rgba(0.5, 0.5, 0.5, 0.5).into(),
+                            min_height: Val::Px(150.0), // Ensure it has some space
+                            ..default()
+                        },
+                        background_color: Color::rgba(0.1, 0.1, 0.1, 0.3).into(),
+                        ..default()
+                    },
+                    ZoneDetailsPanel,
+                )).id();
+
                 if let Some(selected_zone_id) = &selected_zone.0 {
                     if let Some(zone) = game_state.zones.iter().find(|z| z.id == *selected_zone_id) {
                         if let Some(current_tier) = zone.available_tiers.get(zone.current_tier_index) {
-                            // Spawn a container for details to visually separate them
-                            parent.spawn(NodeBundle {
-                                style: Style {
-                                    flex_direction: FlexDirection::Column,
-                                    margin: UiRect::top(Val::Px(10.0)),
-                                    padding: UiRect::all(Val::Px(5.0)),
-                                    border: UiRect::all(Val::Px(1.0)),
-                                    border_color: Color::rgba(0.5, 0.5, 0.5, 0.5).into(),
-                                    ..default()
-                                },
-                                background_color: Color::rgba(0.1, 0.1, 0.1, 0.3).into(),
-                                ..default()
-                            })
-                            .insert(ZoneDetailsPanel) // Mark this new node as the details panel
-                            .with_children(|details_parent| {
+                            commands.entity(details_panel_entity).with_children(|details_parent| {
                                 details_parent.spawn(TextBundle::from_section(
-                                    format!("Details: {:?} - {}", zone.zone_type, current_tier.name),
+                                    format!("Zone Details: {:?} - {}", zone.zone_type, current_tier.name),
                                     TextStyle { font_size: 15.0, color: PRIMARY_TEXT_COLOR, ..default()}
                                 ).with_style(Style{ margin: UiRect::bottom(Val::Px(4.0)), ..default()}));
 
