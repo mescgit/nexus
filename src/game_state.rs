@@ -1123,11 +1123,11 @@ pub fn add_service_building(game_state: &mut GameState, service_type: ServiceTyp
     }
     let tier_info = &all_tiers[tier_index]; 
     if game_state.credits < tier_info.construction_credits_cost as f64 {
-        println!("Not enough credits to build {}. Required: {}, Available: {:.2}", tier_info.name, tier_info.construction_credits_cost, game_state.credits);
+        add_notification(&mut game_state.notifications, format!("Not enough credits to build {:?} - {}.", service_type, tier_info.name), 0.0);
         return;
     }
     game_state.credits -= tier_info.construction_credits_cost as f64;
-    println!("Built {} for {} credits. Remaining credits: {:.2}", tier_info.name, tier_info.construction_credits_cost, game_state.credits);
+    add_notification(&mut game_state.notifications, format!("Built {:?} - {}.", service_type, tier_info.name), 0.0);
 
     let new_building = ServiceBuilding {
         id: generate_unique_id(),
@@ -1140,7 +1140,7 @@ pub fn add_service_building(game_state: &mut GameState, service_type: ServiceTyp
     };
     game_state.service_buildings.push(new_building);
     update_civic_index(game_state); 
-    println!("Added Service Building: {}", tier_info.name);
+    // Removed the println! for "Added Service Building" as the "Built..." notification covers it.
 }
 
 pub fn upgrade_service_building(game_state: &mut GameState, building_id: &str) {
