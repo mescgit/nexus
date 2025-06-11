@@ -8,7 +8,7 @@ use std::collections::HashMap;
 
 // Import everything needed from game_state
 mod game_state;
-use game_state::{BuildingType as GameBuildingType, DevelopmentPhase, ServiceType};
+use game_state::{BuildingType as GameBuildingType, DevelopmentPhase, ServiceType, ZoneType};
 
 // --- Color & Style Constants ---
 const PANEL_BACKGROUND: Color = Color::rgba(0.02, 0.02, 0.05, 0.85);
@@ -66,6 +66,20 @@ struct AdminSpireTierText;
 struct ConstructSpireButton;
 #[derive(Component)]
 struct UpgradeSpireButton;
+#[derive(Component)]
+struct ManagedStructuresPanel;
+#[derive(Component)]
+struct ZoneListButton(String); // Holds Zone ID
+#[derive(Component)]
+struct ZoneDetailsPanel; // Panel for selected zone's details and actions
+#[derive(Component)]
+struct UpgradeZoneButton(String); // Holds Zone ID for upgrade action
+#[derive(Component)]
+struct RemoveZoneButton(String); // Holds Zone ID for remove action
+#[derive(Component)]
+struct AssignSpecialistToZoneButton(String); // Holds Zone ID
+#[derive(Component)]
+struct UnassignSpecialistFromZoneButton(String); // Holds Zone ID
 
 
 // Construction Components
@@ -83,6 +97,8 @@ struct ConfirmBuildButton(GameBuildingType);
 struct ConstructHabitationButton(usize); // usize is tier_index
 #[derive(Component)]
 struct ConstructServiceButton(ServiceType, usize); // ServiceType, tier_index
+#[derive(Component)]
+struct ConstructZoneButton(ZoneType, usize); // ZoneType, tier_index
 
 
 // Colony Status Components
@@ -121,6 +137,7 @@ pub enum ConstructionCategory {
     Operations,
     Habitation,
     Services,
+    Zones,
 }
 #[derive(Resource, Default)]
 pub struct CurrentConstructionCategory(pub ConstructionCategory);
@@ -138,6 +155,9 @@ pub struct CurrentApp(pub AppType);
 
 #[derive(Resource, Default)]
 pub struct SelectedTech(pub Option<Tech>);
+
+#[derive(Resource, Default)]
+pub struct SelectedZone(pub Option<String>);
 
 
 // --- Building Metadata ---
@@ -189,6 +209,7 @@ impl Plugin for UiPlugin {
             .init_resource::<CurrentConstructionCategory>()
             .init_resource::<SelectedBuilding>()
             .init_resource::<SelectedTech>()
+            .init_resource::<SelectedZone>() // Initialize SelectedZone
             .add_systems(Startup, setup_ui)
             .add_systems(Update, (
                 app_drawer_button_system,
@@ -196,6 +217,12 @@ impl Plugin for UiPlugin {
                 update_status_ticker_system,
                 update_dashboard_notifications_system,
                 update_admin_spire_panel_system,
+                update_managed_structures_panel_system,
+                zone_list_button_interaction_system,
+                upgrade_zone_button_interaction_system,
+                remove_zone_button_interaction_system,
+                assign_specialist_to_zone_button_interaction_system, // Added new system
+                unassign_specialist_from_zone_button_interaction_system, // Added new system
                 admin_spire_button_interaction_system,
                 draw_graph_gizmos,
                 construction_category_tab_system,
@@ -204,13 +231,28 @@ impl Plugin for UiPlugin {
                 update_construction_details_panel_system,
                 construction_interaction_system,
                 habitation_construction_system,
-                service_construction_system, // Added new system
+                service_construction_system,
+                zone_construction_system, // Added new system
                 update_colony_status_panel_system,
                 update_research_panel_system,
                 research_item_button_system,
                 update_research_details_panel_system,
                 initiate_research_button_system,
             ).chain());
+    }
+}
+
+fn zone_construction_system(
+    mut interaction_query: Query<(&Interaction, &ConstructZoneButton), (Changed<Interaction>, With<Button>)>,
+    mut game_state: ResMut<GameState>,
+) {
+    for (interaction, button_data) in interaction_query.iter_mut() {
+        if *interaction == Interaction::Pressed {
+            let zone_type = button_data.0;
+            let tier_index = button_data.1;
+            game_state::add_zone(&mut game_state, zone_type, tier_index);
+            // Notifications will be handled in game_state::add_zone
+        }
     }
 }
 
@@ -394,6 +436,24 @@ fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                                 border_color: BORDER_COLOR.into(),
                                 ..default()
                             }, AdminSpireInfoPanel));
+
+                            // Add ManagedStructuresPanel here
+                            right_col.spawn((
+                                NodeBundle {
+                                    style: Style {
+                                        flex_direction: FlexDirection::Column,
+                                        margin: UiRect::top(Val::Px(10.0)),
+                                        padding: UiRect::all(Val::Px(5.0)),
+                                        border: UiRect::all(Val::Px(1.0)),
+                                        flex_grow: 1.0, // Allow it to take available space
+                                        ..default()
+                                    },
+                                    background_color: Color::rgba(0.0,0.0,0.0,0.2).into(), // Slightly different bg for distinction
+                                    border_color: BORDER_COLOR.into(),
+                                    ..default()
+                                },
+                                ManagedStructuresPanel,
+                            ));
                         });
                     });
                 });
@@ -403,7 +463,7 @@ fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                     con.spawn(TextBundle::from_section("CONSTRUCTION", TextStyle{font_size: 28.0, color: BORDER_COLOR, ..default()}).with_style(Style{margin: UiRect::bottom(Val::Px(10.0)), ..default()}));
                     con.spawn(NodeBundle { style: Style { flex_direction: FlexDirection::Row, margin: UiRect::bottom(Val::Px(5.0)), ..default()}, ..default()})
                     .with_children(|tabs|{
-                        let categories = [ConstructionCategory::Operations, ConstructionCategory::Habitation, ConstructionCategory::Services];
+                        let categories = [ConstructionCategory::Operations, ConstructionCategory::Habitation, ConstructionCategory::Services, ConstructionCategory::Zones];
                         for category in categories {
                             tabs.spawn((ButtonBundle {style: Style{padding: UiRect::all(Val::Px(8.0)), margin: UiRect::horizontal(Val::Px(5.0)), ..default()}, background_color: NORMAL_BUTTON.into(), ..default()}, ConstructionCategoryTab(category)))
                             .with_children(|button| { button.spawn(TextBundle::from_section(format!("{:?}", category), TextStyle {font_size: 16.0, color: PRIMARY_TEXT_COLOR, ..default()})); });
@@ -463,6 +523,281 @@ fn app_drawer_button_system(
             }
         } else if *interaction == Interaction::Hovered && app_button.0 != current_app_res.0 {
             *bg_color = HOVERED_BUTTON.into();
+        }
+    }
+}
+
+fn update_managed_structures_panel_system(
+    current_app: Res<CurrentApp>,
+    game_state: Res<GameState>,
+    selected_zone: Res<SelectedZone>,
+    panel_query: Query<Entity, With<ManagedStructuresPanel>>,
+    mut commands: Commands,
+) {
+    if current_app.0 != AppType::Dashboard {
+        return;
+    }
+
+    // Rerun if game state, current app, or selected zone changes
+    if game_state.is_changed() || (current_app.is_changed() && current_app.0 == AppType::Dashboard) || selected_zone.is_changed() {
+        if let Ok(panel_entity) = panel_query.get_single() {
+            commands.entity(panel_entity).despawn_descendants(); // Clear the whole panel
+
+            commands.entity(panel_entity).with_children(|parent| {
+                // --- Part 1: List of Zones (Buttons) ---
+                parent.spawn(TextBundle::from_section(
+                    "Managed Zones List", // Changed title for clarity
+                    TextStyle {
+                        font_size: 16.0, // Restoring original style for title
+                        color: LABEL_TEXT_COLOR,
+                        ..default()
+                    },
+                ).with_style(Style { margin: UiRect::bottom(Val::Px(5.0)), ..default() }));
+
+                if game_state.zones.is_empty() {
+                    parent.spawn(TextBundle::from_section(
+                        "No zones established.",
+                        TextStyle {
+                            font_size: 14.0,
+                            color: PRIMARY_TEXT_COLOR,
+                            ..default()
+                        },
+                    ));
+                } else {
+                    for zone in game_state.zones.iter() {
+                        if let Some(tier) = zone.available_tiers.get(zone.current_tier_index) {
+                            parent.spawn((
+                                ButtonBundle {
+                                    style: Style {
+                                        width: Val::Percent(100.0),
+                                        padding: UiRect::all(Val::Px(5.0)),
+                                        margin: UiRect::bottom(Val::Px(2.0)),
+                                        justify_content: JustifyContent::Center, // Center text in button
+                                        ..default()
+                                    },
+                                    background_color: NORMAL_BUTTON.into(),
+                                    ..default()
+                                },
+                                ZoneListButton(zone.id.clone()),
+                            ))
+                            .with_children(|button_parent| {
+                                button_parent.spawn(TextBundle::from_section(
+                                    format!(
+                                        "{:?} - {} (Workers: {}/{})",
+                                        zone.zone_type,
+                                        tier.name,
+                                        zone.assigned_specialists,
+                                        tier.specialist_jobs_provided
+                                    ),
+                    TextStyle {
+                        font_size: 16.0,
+                        color: LABEL_TEXT_COLOR,
+                        ..default()
+                    },
+                ).with_style(Style { margin: UiRect::bottom(Val::Px(5.0)), ..default() }));
+
+                if game_state.zones.is_empty() {
+                    parent.spawn(TextBundle::from_section(
+                        "No zones established.",
+                        TextStyle {
+                            font_size: 14.0,
+                            color: PRIMARY_TEXT_COLOR,
+                            ..default()
+                        },
+                    ));
+                } else {
+                    for zone in game_state.zones.iter() {
+                        if let Some(tier) = zone.available_tiers.get(zone.current_tier_index) {
+                            parent.spawn((
+                                ButtonBundle {
+                                    style: Style {
+                                        width: Val::Percent(100.0),
+                                        padding: UiRect::all(Val::Px(5.0)),
+                                        margin: UiRect::bottom(Val::Px(2.0)),
+                                        justify_content: JustifyContent::Center,
+                                        ..default()
+                                    },
+                                    background_color: NORMAL_BUTTON.into(), // This will be updated by zone_list_button_interaction_system
+                                    ..default()
+                                },
+                                ZoneListButton(zone.id.clone()),
+                            ))
+                            .with_children(|button_parent| {
+                                button_parent.spawn(TextBundle::from_section(
+                                    format!(
+                                        "{:?} - {} (Workers: {}/{})",
+                                        zone.zone_type,
+                                        tier.name,
+                                        zone.assigned_specialists,
+                                        tier.specialist_jobs_provided
+                                    ),
+                                    TextStyle {
+                                        font_size: 14.0,
+                                        color: PRIMARY_TEXT_COLOR,
+                                        ..default()
+                                    },
+                                ));
+                            });
+                        }
+                    }
+                }
+
+                // --- Part 2: Details of Selected Zone ---
+                // Unconditionally spawn the ZoneDetailsPanel container, then conditionally populate it.
+                let details_panel_entity = parent.spawn((
+                    NodeBundle {
+                        style: Style {
+                            flex_direction: FlexDirection::Column,
+                            margin: UiRect::top(Val::Px(10.0)),
+                            padding: UiRect::all(Val::Px(5.0)),
+                            border: UiRect::all(Val::Px(1.0)),
+                            border_color: Color::rgba(0.5, 0.5, 0.5, 0.5).into(),
+                            min_height: Val::Px(150.0), // Ensure it has some space
+                            ..default()
+                        },
+                        background_color: Color::rgba(0.1, 0.1, 0.1, 0.3).into(),
+                        ..default()
+                    },
+                    ZoneDetailsPanel,
+                )).id();
+
+                if let Some(selected_zone_id) = &selected_zone.0 {
+                    if let Some(zone) = game_state.zones.iter().find(|z| z.id == *selected_zone_id) {
+                        if let Some(current_tier) = zone.available_tiers.get(zone.current_tier_index) {
+                            commands.entity(details_panel_entity).with_children(|details_parent| {
+                                details_parent.spawn(TextBundle::from_section(
+                                    format!("Zone Details: {:?} - {}", zone.zone_type, current_tier.name),
+                                    TextStyle { font_size: 15.0, color: PRIMARY_TEXT_COLOR, ..default()}
+                                ).with_style(Style{ margin: UiRect::bottom(Val::Px(4.0)), ..default()}));
+
+                                details_parent.spawn(TextBundle::from_section(
+                                    format!("Workers: {}/{}", zone.assigned_specialists, current_tier.specialist_jobs_provided),
+                                    TextStyle { font_size: 14.0, color: LABEL_TEXT_COLOR, ..default()}
+                                ).with_style(Style{ margin: UiRect::bottom(Val::Px(2.0)), ..default()}));
+
+                                details_parent.spawn(TextBundle::from_section(
+                                    format!("Civic Index: {}", current_tier.civic_index_contribution),
+                                    TextStyle { font_size: 14.0, color: LABEL_TEXT_COLOR, ..default()}
+                                ).with_style(Style{ margin: UiRect::bottom(Val::Px(2.0)), ..default()}));
+
+                                if zone.zone_type == ZoneType::Commercial {
+                                    details_parent.spawn(TextBundle::from_section(
+                                        format!("Income: {} Cr/cycle", current_tier.income_generation),
+                                        TextStyle { font_size: 14.0, color: LABEL_TEXT_COLOR, ..default()}
+                                    ).with_style(Style{ margin: UiRect::bottom(Val::Px(2.0)), ..default()}));
+                                }
+
+                                details_parent.spawn(TextBundle::from_section(
+                                    format!("Upkeep: {} Cr/cycle", current_tier.upkeep_cost),
+                                    TextStyle { font_size: 14.0, color: LABEL_TEXT_COLOR, ..default()}
+                                ).with_style(Style{ margin: UiRect::bottom(Val::Px(8.0)), ..default()}));
+
+                                // Upgrade Button
+                                if zone.current_tier_index < zone.available_tiers.len() - 1 {
+                                    let next_tier = &zone.available_tiers[zone.current_tier_index + 1];
+                                    let can_afford_upgrade = game_state.credits >= next_tier.construction_credits_cost as f64;
+                                    details_parent.spawn((
+                                        ButtonBundle {
+                                            style: Style { width: Val::Percent(100.0), padding: UiRect::all(Val::Px(5.0)), margin: UiRect::bottom(Val::Px(4.0)), ..default()},
+                                            background_color: if can_afford_upgrade { NORMAL_BUTTON.into() } else { DISABLED_BUTTON.into() },
+                                            ..default()
+                                        },
+                                        UpgradeZoneButton(selected_zone_id.clone()),
+                                    )).with_children(|btn| {
+                                        btn.spawn(TextBundle::from_section(
+                                            format!("Upgrade to {} ({} Cr)", next_tier.name, next_tier.construction_credits_cost),
+                                            TextStyle { font_size: 14.0, color: PRIMARY_TEXT_COLOR, ..default()}
+                                        ));
+                                    });
+                                } else {
+                                     details_parent.spawn(TextBundle::from_section( "Max tier reached", TextStyle { font_size: 14.0, color: Color::CYAN, ..default()}));
+                                }
+
+                                // Remove Button
+                                details_parent.spawn((
+                                    ButtonBundle {
+                                        style: Style { width: Val::Percent(100.0), padding: UiRect::all(Val::Px(5.0)), margin: UiRect::top(Val::Px(4.0)), ..default()},
+                                        background_color: NORMAL_BUTTON.into(), // Or a more "dangerous" color
+                                        ..default()
+                                    },
+                                    RemoveZoneButton(selected_zone_id.clone()),
+                                )).with_children(|btn| {
+                                    btn.spawn(TextBundle::from_section("Remove Zone", TextStyle { font_size: 14.0, color: Color::TOMATO, ..default()}));
+                                });
+
+                                // Spacer before specialist buttons
+                                details_parent.spawn(NodeBundle { style: Style { height: Val::Px(10.0), ..default()}, ..default()});
+
+                                // Assign Specialist Button
+                                let can_assign_more_specialists_to_zone = zone.assigned_specialists < current_tier.specialist_jobs_provided;
+                                let available_general_inhabitants = game_state.total_inhabitants.saturating_sub(game_state.assigned_specialists_total);
+                                let can_assign = can_assign_more_specialists_to_zone && available_general_inhabitants > 0;
+
+                                details_parent.spawn((
+                                    ButtonBundle {
+                                        style: Style { width: Val::Percent(100.0), padding: UiRect::all(Val::Px(5.0)), margin: UiRect::bottom(Val::Px(4.0)), ..default()},
+                                        background_color: if can_assign { NORMAL_BUTTON.into() } else { DISABLED_BUTTON.into() },
+                                        ..default()
+                                    },
+                                    AssignSpecialistToZoneButton(selected_zone_id.clone()),
+                                )).with_children(|btn| {
+                                    btn.spawn(TextBundle::from_section("Assign Specialist (+1)", TextStyle { font_size: 14.0, color: PRIMARY_TEXT_COLOR, ..default()}));
+                                });
+
+                                // Unassign Specialist Button
+                                let can_unassign = zone.assigned_specialists > 0;
+                                details_parent.spawn((
+                                    ButtonBundle {
+                                        style: Style { width: Val::Percent(100.0), padding: UiRect::all(Val::Px(5.0)), ..default()}, // Removed bottom margin for last button
+                                        background_color: if can_unassign { NORMAL_BUTTON.into() } else { DISABLED_BUTTON.into() },
+                                        ..default()
+                                    },
+                                    UnassignSpecialistFromZoneButton(selected_zone_id.clone()),
+                                )).with_children(|btn| {
+                                    btn.spawn(TextBundle::from_section("Unassign Specialist (-1)", TextStyle { font_size: 14.0, color: PRIMARY_TEXT_COLOR, ..default()}));
+                                });
+                            });
+                        }
+                    }
+                }
+            });
+        }
+    }
+}
+
+fn assign_specialist_to_zone_button_interaction_system(
+    mut interaction_query: Query<(&Interaction, &AssignSpecialistToZoneButton), (Changed<Interaction>, With<Button>)>,
+    mut game_state: ResMut<GameState>,
+) {
+    for (interaction, button) in interaction_query.iter_mut() {
+        if *interaction == Interaction::Pressed {
+            // Basic check if button was active, game_state function will do the full logic check
+            let zone_id = &button.0;
+            if let Some(zone) = game_state.zones.iter().find(|z| z.id == *zone_id) {
+                if let Some(tier) = zone.available_tiers.get(zone.current_tier_index){
+                     let can_assign_more_specialists_to_zone = zone.assigned_specialists < tier.specialist_jobs_provided;
+                     let available_general_inhabitants = game_state.total_inhabitants.saturating_sub(game_state.assigned_specialists_total);
+                     if can_assign_more_specialists_to_zone && available_general_inhabitants > 0 {
+                        game_state::assign_specialists_to_zone(&mut game_state, zone_id, 1);
+                     }
+                }
+            }
+        }
+    }
+}
+
+fn unassign_specialist_from_zone_button_interaction_system(
+    mut interaction_query: Query<(&Interaction, &UnassignSpecialistFromZoneButton), (Changed<Interaction>, With<Button>)>,
+    mut game_state: ResMut<GameState>,
+) {
+    for (interaction, button) in interaction_query.iter_mut() {
+        if *interaction == Interaction::Pressed {
+            let zone_id = &button.0;
+             if let Some(zone) = game_state.zones.iter().find(|z| z.id == *zone_id) {
+                if zone.assigned_specialists > 0 {
+                    game_state::unassign_specialists_from_zone(&mut game_state, zone_id, 1);
+                }
+            }
         }
     }
 }
@@ -626,6 +961,60 @@ fn update_admin_spire_panel_system(
                 });
             }
         });
+    }
+}
+
+fn zone_list_button_interaction_system(
+    mut selected_zone_res: ResMut<SelectedZone>,
+    mut button_query: Query<(&Interaction, &ZoneListButton, &mut BackgroundColor), With<Button>>,
+) {
+    for (interaction, zone_button_data, mut bg_color) in button_query.iter_mut() {
+        let is_currently_selected_in_res = selected_zone_res.0.as_ref() == Some(&zone_button_data.0);
+
+        if *interaction == Interaction::Pressed {
+            if is_currently_selected_in_res {
+                selected_zone_res.0 = None;
+            } else {
+                selected_zone_res.0 = Some(zone_button_data.0.clone());
+            }
+        }
+
+        if selected_zone_res.is_changed() || *interaction != Interaction::None { // Update if selection changed or interaction happened
+            if selected_zone_res.0.as_ref() == Some(&zone_button_data.0) {
+                *bg_color = ACTIVE_BUTTON.into();
+            } else if *interaction == Interaction::Hovered {
+                *bg_color = HOVERED_BUTTON.into();
+            } else {
+                *bg_color = NORMAL_BUTTON.into();
+            }
+        }
+    }
+}
+
+fn upgrade_zone_button_interaction_system(
+    mut interaction_query: Query<(&Interaction, &UpgradeZoneButton), (Changed<Interaction>, With<Button>)>,
+    mut game_state: ResMut<GameState>,
+) {
+    for (interaction, button) in interaction_query.iter_mut() {
+        if *interaction == Interaction::Pressed {
+            // Affordability is checked visually by button color in update_managed_structures_panel_system.
+            // Direct click interaction here assumes if it's clickable (not explicitly blocked by Bevy's interaction system itself),
+            // the action should be attempted. game_state::upgrade_zone should handle the actual logic including costs.
+            game_state::upgrade_zone(&mut game_state, &button.0);
+        }
+    }
+}
+
+fn remove_zone_button_interaction_system(
+    mut interaction_query: Query<(&Interaction, &RemoveZoneButton), (Changed<Interaction>, With<Button>)>,
+    mut game_state: ResMut<GameState>,
+    mut selected_zone: ResMut<SelectedZone>,
+) {
+    for (interaction, button) in interaction_query.iter_mut() {
+        if *interaction == Interaction::Pressed {
+            game_state::remove_zone(&mut game_state, &button.0);
+            selected_zone.0 = None;
+        }
     }
 }
 
@@ -801,7 +1190,43 @@ fn update_construction_list_system(
                                     ConstructServiceButton(*service_type, tier_index)
                                 )).with_children(|p| {
                                     p.spawn(TextBundle::from_section(
-                                        format!("{} - {} ({} Cr)", service_type.to_string(), tier.name, tier.construction_credits_cost),
+                                        format!("{:?} - {} ({} Cr)", service_type, tier.name, tier.construction_credits_cost),
+                                        TextStyle { font_size: 16.0, color: PRIMARY_TEXT_COLOR, ..default() }
+                                    ));
+                                });
+                            }
+                        }
+                    },
+                    ConstructionCategory::Zones => {
+                        let zone_types = [ZoneType::Commercial, ZoneType::LightIndustry];
+
+                        for zone_type in zone_types.iter() {
+                            let zone_tiers = game_state::get_zone_tiers(*zone_type);
+                            if zone_tiers.is_empty() {
+                                parent.spawn(TextBundle::from_section(
+                                    format!("No tiers available for {:?}.", zone_type),
+                                    TextStyle { color: LABEL_TEXT_COLOR, ..default() },
+                                ));
+                                continue;
+                            }
+
+                            for (tier_index, tier) in zone_tiers.iter().enumerate() {
+                                let can_afford = game_state.credits >= tier.construction_credits_cost as f64;
+                                parent.spawn((
+                                    ButtonBundle {
+                                        style: Style {
+                                            width: Val::Percent(100.0),
+                                            padding: UiRect::all(Val::Px(8.0)),
+                                            margin: UiRect::bottom(Val::Px(4.0)),
+                                            ..default()
+                                        },
+                                        background_color: if can_afford { NORMAL_BUTTON.into() } else { DISABLED_BUTTON.into() },
+                                        ..default()
+                                    },
+                                    ConstructZoneButton(*zone_type, tier_index)
+                                )).with_children(|p| {
+                                    p.spawn(TextBundle::from_section(
+                                        format!("{:?} - {} ({} Cr)", zone_type, tier.name, tier.construction_credits_cost),
                                         TextStyle { font_size: 16.0, color: PRIMARY_TEXT_COLOR, ..default() }
                                     ));
                                 });

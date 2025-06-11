@@ -1,3 +1,71 @@
+feat: Implement Zone Construction and Management
+
+This commit introduces the ability for you to construct and manage Commercial and Light Industry Zones, a key feature from the Phase 2 roadmap.
+
+Key changes include:
+
+1.  **Backend Review (game_state.rs):**
+    *   I verified existing comprehensive logic for ZoneTypes, ZoneTiers (costs, specialist jobs, civic index, income, upkeep), and core functions (`add_zone`, `upgrade_zone`, `remove_zone`, `assign_specialists_to_zone`, `unassign_specialists_from_zone`).
+    *   Zone impacts on civic index, specialist totals, income, and upkeep were already integrated.
+
+2.  **Zone Construction UI (main.rs):**
+    *   I added a new "Zones" tab to the Construction Panel.
+    *   The UI dynamically lists `Commercial` and `LightIndustry` zone tiers with names and credit costs.
+    *   Buttons are disabled if construction costs cannot be met.
+    *   I created `ConstructZoneButton(ZoneType, usize)` component.
+    *   I implemented `zone_construction_system` to handle button presses and call `game_state::add_zone`.
+
+3.  **Zone Management UI (main.rs):**
+    *   I added a "Managed Zones" panel to the Dashboard.
+    *   This panel lists all constructed zones, showing their type, tier, and specialist count.
+    *   Zones in the list can be selected.
+    *   A `ZoneDetailsPanel` displays information for the selected zone:
+        *   Name, tier, specialist count/capacity.
+        *   Civic index contribution, income generation (for Commercial), and upkeep cost.
+    *   I implemented buttons for:
+        *   "Upgrade Zone": Calls `game_state::upgrade_zone`. Disabled if max tier or unaffordable.
+        *   "Remove Zone": Calls `game_state::remove_zone`. Deselects zone after removal.
+        *   "Assign Specialist (+1)": Calls `game_state::assign_specialists_to_zone`. Disabled if zone is at capacity or no general inhabitants are available.
+        *   "Unassign Specialist (-1)": Calls `game_state::unassign_specialists_from_zone`. Disabled if no specialists are assigned to the zone.
+    *   I created respective button components (`UpgradeZoneButton`, `RemoveZoneButton`, etc.) and interaction systems.
+
+4.  **UI Feedback (game_state.rs):**
+    *   I modified `add_zone`, `upgrade_zone`, `remove_zone`, `assign_specialists_to_zone`, and `unassign_specialists_from_zone` functions to use `add_notification` for all user-facing messages (e.g., success, failure, insufficient resources), replacing previous `println!` calls for better in-game feedback.
+
+5.  **Metadata Check (main.rs):**
+    *   I confirmed that `get_building_metadata` did not require changes, as Zones are implemented as a distinct entity (`ZoneType`) separate from `GameBuildingType`.
+
+This implementation provides a solid foundation for Zone mechanics in the game.
+
+
+Fix: Use Debug formatting for ServiceType (Final)
+
+Corrected the remaining compilation error by using the Debug
+representation (`{:?}`) for `ServiceType` in `format!` macros
+within `main.rs`.
+
+This ensures all instances of `ServiceType` formatting now use
+the `Debug` trait, resolving the `E0599` error.
+
+Fix: Use Debug formatting for ServiceType
+
+Corrected compilation errors by using the Debug representation (`{:?}`)
+for `ServiceType` in `format!` macros within `game_state.rs` and `main.rs`.
+This resolves issues where `ServiceType` was being used with `to_string()`
+or `{}` which require the `Display` trait, which is not implemented for `ServiceType`.
+
+Implement Service Building Construction
+
+This commit makes the "Services" tab functional, allowing you to construct tiered service buildings.
+
+Key changes:
+
+- Modified `update_construction_list_system` to populate the "Services" tab with buttons for each service building tier.
+- Added a `ConstructServiceButton(ServiceType, usize)` component to identify the service building and tier to construct.
+- Implemented `service_construction_system` to handle button presses and call the `add_service_building` function from the backend.
+- Updated `add_service_building` to use the `add_notification` system for consistent UI feedback.
+
+
 16
 
 feat: Implement Spire UI and Refactor Construction System

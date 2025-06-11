@@ -1238,16 +1238,18 @@ pub fn get_zone_tiers(zone_type: ZoneType) -> Vec<ZoneTier> {
 pub fn add_zone(game_state: &mut GameState, zone_type: ZoneType, tier_index: usize) {
     let all_tiers = get_zone_tiers(zone_type);
     if tier_index >= all_tiers.len() {
+        // This case should ideally be prevented by UI, but good to have a log.
+        // No user-facing notification for this internal error.
         println!("Error: Invalid tier index for zone type {:?}.", zone_type);
         return;
     }
     let tier_info = &all_tiers[tier_index]; 
     if game_state.credits < tier_info.construction_credits_cost as f64 {
-        println!("Not enough credits to build {}. Required: {}, Available: {:.2}", tier_info.name, tier_info.construction_credits_cost, game_state.credits);
+        add_notification(&mut game_state.notifications, format!("Not enough credits to build {:?} - {}.", zone_type, tier_info.name), 0.0);
         return;
     }
     game_state.credits -= tier_info.construction_credits_cost as f64;
-    println!("Built {} for {} credits. Remaining credits: {:.2}", tier_info.name, tier_info.construction_credits_cost, game_state.credits);
+    add_notification(&mut game_state.notifications, format!("Constructed Zone: {:?} - {}.", zone_type, tier_info.name), 0.0);
     
     let new_zone = Zone {
         id: generate_unique_id(),
@@ -1260,7 +1262,7 @@ pub fn add_zone(game_state: &mut GameState, zone_type: ZoneType, tier_index: usi
     game_state.zones.push(new_zone);
     update_total_specialist_slots(game_state); 
     update_civic_index(game_state);
-    println!("Added Zone: {}", tier_info.name);
+    // Removed "Added Zone..." println as it's covered by "Constructed Zone..."
 }
 
 pub fn upgrade_zone(game_state: &mut GameState, zone_id: &str) {
@@ -1273,11 +1275,12 @@ pub fn upgrade_zone(game_state: &mut GameState, zone_id: &str) {
             let upgrade_cost = next_tier_info.construction_credits_cost;
 
             if game_state.credits < upgrade_cost as f64 {
-                println!("Not enough credits to upgrade Zone {} to {}. Required: {}, Available: {:.2}", zone_id, next_tier_info.name, upgrade_cost, game_state.credits);
+                add_notification(&mut game_state.notifications, format!("Not enough credits to upgrade Zone {} to {}. Required: {}, Available: {:.2}", zone_id, next_tier_info.name, upgrade_cost, game_state.credits), 0.0);
                 return;
             }
             game_state.credits -= upgrade_cost as f64;
-            println!("Upgraded Zone {} to {} for {} credits. Remaining credits: {:.2}", zone_id, next_tier_info.name, upgrade_cost, game_state.credits);
+            // The following println about credits is more of a debug log, notification will be for success.
+            // println!("Upgraded Zone {} to {} for {} credits. Remaining credits: {:.2}", zone_id, next_tier_info.name, upgrade_cost, game_state.credits);
             
             zone.current_tier_index = next_tier_index;
             if zone.assigned_specialists > next_tier_info.specialist_jobs_provided {
@@ -1285,13 +1288,13 @@ pub fn upgrade_zone(game_state: &mut GameState, zone_id: &str) {
                 zone.assigned_specialists -= to_unassign;
                 game_state.assigned_specialists_total = game_state.assigned_specialists_total.saturating_sub(to_unassign);
             }
-            println!("Upgraded Zone {} to {}", zone_id, next_tier_info.name); 
+            add_notification(&mut game_state.notifications, format!("Zone {} successfully upgraded to: {}.", zone_id, next_tier_info.name), 0.0);
             upgraded = true;
         } else {
-            println!("Zone {} is already at max tier.", zone_id);
+            add_notification(&mut game_state.notifications, format!("Zone {} is already at max tier.", zone_id), 0.0);
         }
     } else {
-        println!("Zone with ID {} not found.", zone_id);
+        add_notification(&mut game_state.notifications, format!("Zone with ID {} not found for upgrade.", zone_id), 0.0);
     }
 
     if upgraded {
@@ -1306,9 +1309,9 @@ pub fn remove_zone(game_state: &mut GameState, zone_id: &str) {
         game_state.assigned_specialists_total = game_state.assigned_specialists_total.saturating_sub(removed_zone.assigned_specialists);
         update_total_specialist_slots(game_state);
         update_civic_index(game_state);
-        println!("Removed Zone with ID {}", zone_id);
+        add_notification(&mut game_state.notifications, format!("Removed Zone with ID {}.", zone_id), 0.0);
     } else {
-        println!("Zone with ID {} not found for removal.", zone_id);
+        add_notification(&mut game_state.notifications, format!("Zone with ID {} not found for removal.", zone_id), 0.0);
     }
 }
 
@@ -1317,30 +1320,33 @@ pub fn assign_specialists_to_zone(game_state: &mut GameState, zone_id: &str, num
         if let Some(tier) = zone.available_tiers.get(zone.current_tier_index) {
             let available_general_inhabitants = game_state.total_inhabitants.saturating_sub(game_state.assigned_specialists_total);
             if available_general_inhabitants < num_to_assign {
-                println!("Not enough unassigned inhabitants to become specialists for zone {}.", zone_id);
+                add_notification(&mut game_state.notifications, format!("Not enough unassigned inhabitants to become specialists for zone {}.", zone_id), 0.0);
                 return;
             }
             if zone.assigned_specialists + num_to_assign > tier.specialist_jobs_provided {
-                println!("Cannot assign more specialists than available jobs in zone {}. Max: {}", zone_id, tier.specialist_jobs_provided);
+                add_notification(&mut game_state.notifications, format!("Cannot assign more specialists than available jobs in zone {}. Max: {}", zone_id, tier.specialist_jobs_provided), 0.0);
                 return;
             }
             zone.assigned_specialists += num_to_assign;
             game_state.assigned_specialists_total += num_to_assign;
-            println!("Assigned {} specialists to zone {}. Total assigned globally: {}", num_to_assign, zone_id, game_state.assigned_specialists_total);
+            add_notification(&mut game_state.notifications, format!("Assigned {} specialists to zone {}.", num_to_assign, zone_id), 0.0);
         }
     } else {
-        println!("Zone {} not found for specialist assignment.", zone_id);
+        add_notification(&mut game_state.notifications, format!("Zone {} not found for specialist assignment.", zone_id), 0.0);
     }
 }
 
 pub fn unassign_specialists_from_zone(game_state: &mut GameState, zone_id: &str, num_to_unassign: u32) {
     if let Some(zone) = game_state.zones.iter_mut().find(|z| z.id == zone_id) {
         let actual_unassign = num_to_unassign.min(zone.assigned_specialists);
-        zone.assigned_specialists -= actual_unassign;
-        game_state.assigned_specialists_total -= actual_unassign;
-        println!("Unassigned {} specialists from zone {}. Total assigned globally: {}", actual_unassign, zone_id, game_state.assigned_specialists_total);
+        if actual_unassign > 0 { // Only notify if an actual unassignment happens
+            zone.assigned_specialists -= actual_unassign;
+            game_state.assigned_specialists_total -= actual_unassign;
+            add_notification(&mut game_state.notifications, format!("Unassigned {} specialists from zone {}.", actual_unassign, zone_id), 0.0);
+        }
+        // No notification if trying to unassign from 0, or unassigning 0.
     } else {
-        println!("Zone {} not found for specialist unassignment.", zone_id);
+        add_notification(&mut game_state.notifications, format!("Zone {} not found for specialist unassignment.", zone_id), 0.0);
     }
 }
 
