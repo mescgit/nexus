@@ -1376,49 +1376,6 @@ fn update_construction_details_panel_system(
     }
 }
 
-fn construction_interaction_system(
-    interaction_query: Query<&Interaction, (Changed<Interaction>, With<ConfirmBuildButton>)>,
-    selected_building: Res<SelectedBuilding>,
-    mut game_state: ResMut<GameState>,
-    mut commands: Commands,
-    time: Res<Time>,
-) {
-     if let Some(building_type) = selected_building.0 {
-        if let Ok(Interaction::Pressed) = interaction_query.get_single() {
-             let meta = get_building_metadata().get(&building_type).unwrap().clone();
-             let costs = game_state.building_costs.get(&building_type).unwrap().clone();
-
-             let can_afford = costs.iter().all(|(res, &req)| game_state.current_resources.get(res).unwrap_or(&0.0) >= &req);
-             if !can_afford {
-                 game_state::add_notification(&mut game_state.notifications, format!("Insufficient materials for {:?}.", building_type), time.elapsed_seconds_f64());
-                 return;
-             }
-
-             for (res, cost) in &costs {
-                 *game_state.current_resources.get_mut(res).unwrap() -= cost;
-             }
-
-             match building_type {
-                GameBuildingType::Extractor => { commands.spawn(game_state::Extractor { power_consumption: 15, resource_type: ResourceType::FerrocreteOre, extraction_rate: 2.5, workforce_required: meta.workforce_required, is_staffed: false }); }
-                GameBuildingType::BioDome => { commands.spawn(game_state::BioDome { power_consumption: 10, production_rate: 5.0, workforce_required: meta.workforce_required, is_staffed: false }); }
-                GameBuildingType::PowerRelay => { commands.spawn(game_state::PowerRelay { power_output: 50 }); }
-                GameBuildingType::ResearchInstitute => { commands.spawn(game_state::ResearchInstitute { power_consumption: 5, workforce_required: meta.workforce_required, is_staffed: false }); }
-                GameBuildingType::Fabricator => {
-                    game_state::add_fabricator(&mut game_state, 0);
-                }
-                GameBuildingType::ProcessingPlant => {
-                    game_state::add_processing_plant(&mut game_state, 0);
-                }
-                GameBuildingType::StorageSilo => {
-                    commands.spawn(game_state::StorageSilo { capacity: 500 });
-                }
-             }
-             game_state::add_notification(&mut game_state.notifications, format!("Construction started: {:?}", building_type), time.elapsed_seconds_f64());
-        }
-     }
-}
-
-
 fn update_colony_status_panel_system(
     game_state: Res<GameState>,
     mut query: Query<(&mut Text, &DiagnosticItem)>,

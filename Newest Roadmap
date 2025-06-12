@@ -1,0 +1,93 @@
+Nexus Core: Colony Manager - Development Roadmap (From Current State)
+
+Objective: To build upon the established foundation, deepen the simulation's complexity, and deliver the full gameplay experience from a thriving metropolis to a lasting legacy.
+Phase 1: Deepening the Simulation & Management
+
+Rust Focus: Enhance UI interactions in main.rs to expose existing backend logic. Expand data-driven structures in game_state.rs for more complex economic gameplay.
+
+Objective: To fully implement the core management loops for specialists and production, providing you with granular control over your colony's economy and workforce.
+
+Key Tasks:
+
+    Full Specialist Management UI Implementation:
+        Rationale: The backend functions for assigning specialists to Fabricators, ProcessingPlants, and ServiceBuildings already exist, but the UI lacks the necessary controls. This is a top priority for unlocking deeper gameplay.
+        Action Items:
+            Create a "Manage Specialists" or "Building Staffing" panel, likely accessible from the Dashboard or by selecting an individual building.
+            In this panel, display buildings that require specialist assignments.
+            Implement UI buttons and logic in main.rs to call assign_specialists_to_fabricator, unassign_specialists_from_fabricator, and the equivalent functions for other building types.
+            The UI must provide clear feedback on specialist capacity, current assignment, and the number of available general inhabitants who can be promoted to specialists.
+
+    Tiered Construction & Upgrade UI:
+        Rationale: The backend supports multiple tiers for Fabricators, ProcessingPlants, and other structures, but the construction UI currently only builds the initial tier.
+        Action Items:
+            Modify the update_construction_list_system in main.rs to display all available tiers for constructible buildings, not just a single entry.
+            The UI should clearly label the tier (e.g., "Basic Fabricator," "Advanced Fabricator") and show its specific credit and resource costs.
+            Implement a separate UI for upgrading existing buildings in place, likely integrated into the specialist management panel.
+
+    Complex Production Chain Expansion:
+        Rationale: The game currently has a flat economy (raw materials -> finished goods). To create strategic depth, multi-stage production is required as per the roadmap.
+        Action Items:
+            Define recipes in game_state.rs for intermediate components (e.g., ProcessedQuantium, RefinedXylos).
+            Update the FabricatorTier and ProcessingPlantTier structs with recipes that consume these intermediate goods to create AdvancedComponents or other high-tech materials.
+            Ensure the UI clearly displays these new resource requirements for construction and production.
+
+Phase 2: The Path to the Stars
+
+Rust Focus: Expand the Tech enum and research logic significantly. Implement complex game state modifiers based on LegacyStructure effects.
+
+Objective: To build out the mid-to-late game progression, making the pursuit of advanced technology and monumental structures a central, rewarding objective.
+
+Key Tasks:
+
+    Full Technology Tree Implementation:
+        Rationale: The current tech tree is a placeholder. A deep and branching tech tree is a core pillar of the strategy genre.
+        Action Items:
+            Greatly expand the Tech enum in game_state.rs with dozens of new technologies.
+            Implement technologies that unlock higher-tier buildings (e.g., "Arcology Construction"), advanced production recipes, global efficiency bonuses, and new management capabilities.
+            Overhaul the "Research & Development" UI in main.rs to display a branching tech tree, showing dependencies and unlockable features.
+
+    Implement Unique Legacy Structure Effects:
+        Rationale: The UI and basic data structures for Legacy Structures exist, but their powerful, game-altering effects are not yet implemented.
+        Action Items:
+            In game_state.rs, modify the game_tick_system and other core logic functions to check for the presence and tier of Legacy Structures.
+            Implement their unique global bonuses, such as colony-wide happiness boosts, significant credit income, and modifications to population growth rates, as planned in the roadmap.
+
+    "Director's Console" - Advanced Analytics V1:
+        Rationale: To manage a complex colony, you need more than just a line graph. The roadmap envisions sophisticated data visualization to help you make informed decisions.
+        Action Items:
+            Enhance the "Analytics" panel on the Dashboard.
+            Add data views for resource net flow (production vs. consumption) to identify future bottlenecks.
+            Create a "Happiness" breakdown showing positive and negative contributors (e.g., "+10 from Wellness, -5 from Housing shortage").
+            Implement a projection system to provide advisory warnings like, "At current consumption, power reserves will be depleted in 3 cycles."
+
+Phase 3: Creating a Legacy
+
+Rust Focus: Code-complete core features, focus on game balancing, player onboarding, and systems for long-term replayability.
+
+Objective: To polish the game into a complete and engaging experience, ensuring it is approachable for new players and offers lasting challenges for veterans.
+
+Key Tasks:
+
+    Player Onboarding & Guidance:
+        Rationale: The game's complexity requires a system to guide new players.
+        Action Items:
+            Implement a Tutorial System, potentially using the existing notification system to create a script of guided objectives that walks the player through the "First Hour" experience.
+            Create a Contextual Help System or in-game encyclopedia ("Nexuspedia") that can be accessed from the UI to explain what each building, resource, and gameplay mechanic does.
+
+    End-Game Content: Apex Technologies:
+        Rationale: The game needs a satisfying conclusion to the research tree, providing a powerful final goal.
+        Action Items:
+            Implement the final tier of the LegacyStructure.
+            Once built, unlock the "Apex Technologies" in the research UI. These should be extremely expensive, long-term research goals that provide significant, game-changing bonuses.
+
+    Comprehensive Game Balancing:
+        Rationale: With all systems in place, a full balancing pass is required to ensure the game is challenging but fair.
+        Action Items:
+            Tune all numerical values: construction/upkeep costs, resource generation rates, power consumption, research costs, and happiness modifiers.
+            Playtest extensively to ensure a smooth progression curve from the early game to the end game.
+
+    Replayability: "New Directive" System:
+        Rationale: To encourage multiple playthroughs, a New Game+ system adds long-term value.
+        Action Items:
+            Design and implement the "New Directive" system.
+            When starting a new game after a successful playthrough, allow the player to start with a small bonus, a new challenge, or a different starting location with unique properties.

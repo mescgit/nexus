@@ -1544,36 +1544,50 @@ fn grow_inhabitants_system(mut game_state: ResMut<GameState>) {
     grow_inhabitants(&mut game_state);
 }
 
+// CORRECTED: This function is refactored to avoid borrow checker errors.
 fn workforce_assignment_system(mut game_state: ResMut<GameState>) {
-    // This system now handles both legacy and new data-driven buildings
-    let mut workforce_demands: Vec<(u32, &mut bool)> = Vec::new();
+    // 1. Calculate total demand without holding mutable borrows
+    let extractor_demand = game_state.extractors.len() as u32 * 5;
+    let biodome_demand = game_state.bio_domes.len() as u32 * 10;
+    let research_demand = game_state.research_institutes.len() as u32 * 15;
+    let total_demand = extractor_demand + biodome_demand + research_demand;
 
+    // 2. Determine available workforce and update the total in GameState
+    let mut available_workforce = game_state.total_inhabitants.min(total_demand);
+    game_state.assigned_workforce = available_workforce;
+
+    // 3. Greedily assign workforce and update buildings one by one
+    // This avoids borrowing multiple fields of game_state mutably at the same time.
     for extractor in &mut game_state.extractors {
-        workforce_demands.push((5, &mut extractor.is_staffed));
-    }
-    for dome in &mut game_state.bio_domes {
-        workforce_demands.push((10, &mut dome.is_staffed));
-    }
-    for institute in &mut game_state.research_institutes {
-        workforce_demands.push((15, &mut institute.is_staffed));
-    }
-
-    let required_workforce: u32 = workforce_demands.iter().map(|(req, _)| *req).sum();
-    game_state.assigned_workforce = required_workforce.min(game_state.total_inhabitants);
-    let mut available_workforce = game_state.assigned_workforce;
-
-    // Greedy assignment
-    for (required, is_staffed) in workforce_demands {
-        if available_workforce >= required {
-            *is_staffed = true;
-            available_workforce -= required;
+        if available_workforce >= 5 {
+            extractor.is_staffed = true;
+            available_workforce -= 5;
         } else {
-            *is_staffed = false;
+            extractor.is_staffed = false;
+        }
+    }
+
+    for dome in &mut game_state.bio_domes {
+        if available_workforce >= 10 {
+            dome.is_staffed = true;
+            available_workforce -= 10;
+        } else {
+            dome.is_staffed = false;
+        }
+    }
+
+    for institute in &mut game_state.research_institutes {
+        if available_workforce >= 15 {
+            institute.is_staffed = true;
+            available_workforce -= 15;
+        } else {
+            institute.is_staffed = false;
         }
     }
 }
 
 
+// CORRECTED: This function is refactored to avoid borrow checker errors.
 fn game_tick_system(mut game_state: ResMut<GameState>) {
     // --- Power Calculation ---
     let total_power_generation: u32 = game_state.power_relays.len() as u32 * 50;
@@ -1629,17 +1643,19 @@ fn game_tick_system(mut game_state: ResMut<GameState>) {
 
     // --- Resource Production (only if powered) ---
     if has_sufficient_power {
+        // First, count the number of staffed buildings to release immutable borrows.
+        let staffed_bio_domes = game_state.bio_domes.iter().filter(|d| d.is_staffed).count() as f32;
+        let staffed_extractors = game_state.extractors.iter().filter(|e| e.is_staffed).count() as f32;
+
         let capacity: u32 = game_state.storage_silos.len() as u32 * 500;
         let total_capacity = 1000 + capacity; // Base capacity + silo capacity
 
-        for _ in game_state.bio_domes.iter().filter(|d| d.is_staffed) {
-            let amount = game_state.current_resources.entry(ResourceType::NutrientPaste).or_insert(0.0);
-            *amount = (*amount + 5.0).min(total_capacity as f32);
-        }
-        for _ in game_state.extractors.iter().filter(|e| e.is_staffed) {
-            let amount = game_state.current_resources.entry(ResourceType::FerrocreteOre).or_insert(0.0);
-            *amount = (*amount + 2.5).min(total_capacity as f32);
-        }
+        // Now, update resources without holding the previous borrows.
+        let nutrient_paste_amount = game_state.current_resources.entry(ResourceType::NutrientPaste).or_insert(0.0);
+        *nutrient_paste_amount = (*nutrient_paste_amount + 5.0 * staffed_bio_domes).min(total_capacity as f32);
+
+        let ferrocrete_ore_amount = game_state.current_resources.entry(ResourceType::FerrocreteOre).or_insert(0.0);
+        *ferrocrete_ore_amount = (*ferrocrete_ore_amount + 2.5 * staffed_extractors).min(total_capacity as f32);
     }
 
     // Update food status for happiness calculation
