@@ -3,8 +3,17 @@ use bevy::prelude::*;
 
 #[derive(Resource)]
 pub struct TutorialState {
+    pub steps: Vec<TooltipStep>,
     pub current_step: usize,
-    pub completed_steps: Vec<bool>,
+}
+
+impl Default for TutorialState {
+    fn default() -> Self {
+        Self {
+            steps: get_tutorial_steps(),
+            current_step: 0,
+        }
+    }
 }
 
 pub struct TooltipStep {
@@ -105,12 +114,30 @@ pub fn get_tutorial_steps() -> Vec<TooltipStep> {
 }
 
 // Placeholder condition helpers
-fn has_entity_with_tag(_world: &World, _tag: &str) -> bool { false }
-fn entity_has_flag(_world: &World, _entity: &str, _flag: &str) -> bool { false }
-fn entity_produces_resource(_world: &World, _entity: &str) -> bool { false }
-fn player_lacks_available_specialists(_world: &World) -> bool { false }
-fn population_increased(_world: &World) -> bool { false }
-fn happiness_below_threshold(_world: &World, _threshold: f32) -> bool { false }
-fn all_services_covered(_world: &World) -> bool { false }
-fn tech_tree_opened(_world: &World) -> bool { false }
-fn legacy_structure_unlocked(_world: &World) -> bool { false }
+fn has_entity_with_tag(_world: &World, _tag: &str) -> bool {
+    false
+}
+fn entity_has_flag(_world: &World, _entity: &str, _flag: &str) -> bool {
+    false
+}
+fn entity_produces_resource(_world: &World, _entity: &str) -> bool {
+    false
+}
+fn player_lacks_available_specialists(_world: &World) -> bool {
+    false
+}
+fn population_increased(_world: &World) -> bool {
+    false
+}
+fn happiness_below_threshold(_world: &World, _threshold: f32) -> bool {
+    false
+}
+fn all_services_covered(_world: &World) -> bool {
+    false
+}
+fn tech_tree_opened(_world: &World) -> bool {
+    false
+}
+fn legacy_structure_unlocked(_world: &World) -> bool {
+    false
+}
