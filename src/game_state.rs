@@ -194,6 +194,7 @@ pub struct HabitationStructure {
     pub available_tiers: Vec<HabitationStructureTier>,
     pub current_inhabitants: u32,
     pub assigned_specialists: u32,
+    pub position: Option<(f32, f32)>,
 }
 
 // --- Service Building Data Structures ---
@@ -212,6 +213,7 @@ pub struct ServiceBuildingTier {
     pub name: String,
     pub specialist_requirement: u32,
     pub service_capacity: u32,
+    pub service_radius: f32,
     pub upkeep_cost: u32,
     pub civic_index_contribution: u32,
     pub construction_credits_cost: u32,
@@ -1035,7 +1037,11 @@ pub fn update_housing_and_specialist_slots(game_state: &mut GameState) {
     game_state.total_specialist_slots = total_slots;
 }
 
-pub fn add_habitation_structure(game_state: &mut GameState, tier_index: usize) {
+pub fn add_habitation_structure(
+    game_state: &mut GameState,
+    tier_index: usize,
+    position: Option<(f32, f32)>,
+) {
     let all_tiers = get_habitation_tiers();
     if tier_index >= all_tiers.len() {
         return;
@@ -1055,6 +1061,7 @@ pub fn add_habitation_structure(game_state: &mut GameState, tier_index: usize) {
         available_tiers: all_tiers.clone(),
         current_inhabitants: 0,
         assigned_specialists: 0,
+        position,
     };
     game_state.habitation_structures.push(new_structure);
     update_housing_and_specialist_slots(game_state);
@@ -1149,16 +1156,16 @@ pub fn unassign_specialists_from_structure(game_state: &mut GameState, structure
 pub fn get_service_building_tiers(service_type: ServiceType) -> Vec<ServiceBuildingTier> {
     match service_type {
         ServiceType::Wellness => vec![
-            ServiceBuildingTier { name: "Clinic".to_string(), specialist_requirement: 2, service_capacity: 50, upkeep_cost: 10, civic_index_contribution: 5, construction_credits_cost: 150, required_tech: None },
-            ServiceBuildingTier { name: "Hospital".to_string(), specialist_requirement: 5, service_capacity: 250, upkeep_cost: 30, civic_index_contribution: 15, construction_credits_cost: 400, required_tech: None },
+            ServiceBuildingTier { name: "Clinic".to_string(), specialist_requirement: 2, service_capacity: 50, service_radius: 50.0, upkeep_cost: 10, civic_index_contribution: 5, construction_credits_cost: 150, required_tech: None },
+            ServiceBuildingTier { name: "Hospital".to_string(), specialist_requirement: 5, service_capacity: 250, service_radius: 75.0, upkeep_cost: 30, civic_index_contribution: 15, construction_credits_cost: 400, required_tech: None },
         ],
         ServiceType::Security => vec![
-            ServiceBuildingTier { name: "Security Post".to_string(), specialist_requirement: 3, service_capacity: 50, upkeep_cost: 15, civic_index_contribution: 5, construction_credits_cost: 150, required_tech: None },
-            ServiceBuildingTier { name: "Precinct".to_string(), specialist_requirement: 7, service_capacity: 250, upkeep_cost: 40, civic_index_contribution: 15, construction_credits_cost: 450, required_tech: None },
+            ServiceBuildingTier { name: "Security Post".to_string(), specialist_requirement: 3, service_capacity: 50, service_radius: 50.0, upkeep_cost: 15, civic_index_contribution: 5, construction_credits_cost: 150, required_tech: None },
+            ServiceBuildingTier { name: "Precinct".to_string(), specialist_requirement: 7, service_capacity: 250, service_radius: 75.0, upkeep_cost: 40, civic_index_contribution: 15, construction_credits_cost: 450, required_tech: None },
         ],
-        ServiceType::Education => vec![ ServiceBuildingTier { name: "School".to_string(), specialist_requirement: 4, service_capacity: 100, upkeep_cost: 25, civic_index_contribution: 10, construction_credits_cost: 300, required_tech: None } ],
-        ServiceType::Recreation => vec![ ServiceBuildingTier { name: "Rec Center".to_string(), specialist_requirement: 3, service_capacity: 100, upkeep_cost: 20, civic_index_contribution: 8, construction_credits_cost: 250, required_tech: None } ],
-        ServiceType::Spiritual => vec![ ServiceBuildingTier { name: "Sanctum".to_string(), specialist_requirement: 2, service_capacity: 100, upkeep_cost: 10, civic_index_contribution: 3, construction_credits_cost: 200, required_tech: None } ],
+        ServiceType::Education => vec![ ServiceBuildingTier { name: "School".to_string(), specialist_requirement: 4, service_capacity: 100, service_radius: 60.0, upkeep_cost: 25, civic_index_contribution: 10, construction_credits_cost: 300, required_tech: None } ],
+        ServiceType::Recreation => vec![ ServiceBuildingTier { name: "Rec Center".to_string(), specialist_requirement: 3, service_capacity: 100, service_radius: 60.0, upkeep_cost: 20, civic_index_contribution: 8, construction_credits_cost: 250, required_tech: None } ],
+        ServiceType::Spiritual => vec![ ServiceBuildingTier { name: "Sanctum".to_string(), specialist_requirement: 2, service_capacity: 100, service_radius: 60.0, upkeep_cost: 10, civic_index_contribution: 3, construction_credits_cost: 200, required_tech: None } ],
     }
 }
 
@@ -1562,7 +1569,24 @@ fn service_coverage_system(
             if building.service_type == service_type && building.is_active {
                 if let Some(tier) = building.available_tiers.get(building.current_tier_index) {
                     if building.assigned_specialists >= tier.specialist_requirement {
-                        supply += tier.service_capacity;
+                        let in_range = if let Some(b_pos) = building.position {
+                            game_state.habitation_structures.iter().any(|hab| {
+                                if let Some(h_pos) = hab.position {
+                                    let dx = b_pos.0 - h_pos.0;
+                                    let dy = b_pos.1 - h_pos.1;
+                                    let dist2 = dx * dx + dy * dy;
+                                    dist2 <= tier.service_radius * tier.service_radius
+                                } else {
+                                    false
+                                }
+                            })
+                        } else {
+                            true
+                        };
+
+                        if in_range {
+                            supply += tier.service_capacity;
+                        }
                     }
                 }
             }

@@ -1304,7 +1304,7 @@ fn habitation_construction_system(
     for (interaction, button) in interaction_query.iter_mut() {
         if *interaction == Interaction::Pressed {
             let tier_index = button.0;
-            game_state::add_habitation_structure(&mut game_state, tier_index);
+            game_state::add_habitation_structure(&mut game_state, tier_index, None);
         }
     }
 }
