@@ -8,6 +8,12 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicU32, Ordering};
 
+use crate::resources::population::PopulationResource;
+use crate::systems::happiness::{happiness_system, calculate_colony_happiness, HappinessResource};
+use crate::systems::services::service_coverage_system;
+use crate::systems::population::population_growth_system;
+use crate::systems::research::research_system;
+
 // --- Data Structs ---
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -622,27 +628,7 @@ pub struct ColonyStats {
     pub nutrient_paste: f32,
 }
 
-#[derive(Resource, Serialize, Deserialize, Clone)]
-pub struct PopulationResource {
-    pub count: u32,
-}
 
-impl Default for PopulationResource {
-    fn default() -> Self {
-        PopulationResource { count: 5 }
-    }
-}
-
-#[derive(Resource, Serialize, Deserialize, Clone)]
-pub struct HappinessResource {
-    pub score: f32,
-}
-
-impl Default for HappinessResource {
-    fn default() -> Self {
-        HappinessResource { score: 50.0 }
-    }
-}
 
 #[derive(Resource, Serialize, Deserialize, Clone)]
 pub struct ServiceCoverage {
@@ -918,58 +904,6 @@ pub fn fabricator_production_system(game_state: &mut GameState, time_delta_secs:
     }
 }
 
-pub fn calculate_colony_happiness(game_state: &mut GameState, coverage: &ServiceCoverage) {
-    let mut happiness_score = 50.0;
-
-    // --- BASE & RESOURCE MODIFIERS ---
-    if game_state.simulated_has_sufficient_nutrient_paste {
-        happiness_score += 10.0;
-    } else {
-        happiness_score -= 25.0;
-    }
-
-    if game_state.total_inhabitants > game_state.available_housing_capacity {
-        let homeless = game_state.total_inhabitants - game_state.available_housing_capacity;
-        happiness_score -= (homeless as f32) * 2.0;
-    } else if game_state.available_housing_capacity > 0 && game_state.total_inhabitants > 0 {
-        let occupancy_ratio = game_state.total_inhabitants as f32 / game_state.available_housing_capacity as f32;
-        if occupancy_ratio <= 0.9 {
-            happiness_score += 5.0;
-        } else if occupancy_ratio < 1.0 {
-            happiness_score += 2.0;
-        }
-    }
-
-    // --- CIVIC & LEGACY BONUSES ---
-    if let Some(structure) = &game_state.legacy_structure {
-        if let Some(tier) = structure.available_tiers.get(structure.current_tier_index) {
-            happiness_score += tier.happiness_bonus;
-        }
-    }
-    happiness_score += (game_state.civic_index as f32 / 10.0).min(5.0);
-
-
-    // --- SERVICE-BASED MODIFIERS ---
-    let service_types = [
-        ServiceType::Wellness,
-        ServiceType::Security,
-        ServiceType::Education,
-        ServiceType::Recreation,
-        ServiceType::Spiritual,
-    ];
-
-    for service_type in service_types {
-        if let Some(ratio) = coverage.coverage.get(&service_type) {
-            if *ratio >= 1.0 {
-                happiness_score += 5.0;
-            } else {
-                happiness_score -= (1.0 - ratio) * 10.0;
-            }
-        }
-    }
-
-    game_state.colony_happiness = happiness_score.clamp(0.0, 100.0);
-}
 
 
 pub fn update_civic_index(game_state: &mut GameState) {
@@ -1544,93 +1478,7 @@ fn fabricator_production_tick_system(mut game_state: ResMut<GameState>, time: Re
     fabricator_production_system(&mut game_state, time.delta_seconds());
 }
 
-fn service_coverage_system(
-    game_state: Res<GameState>,
-    mut coverage: ResMut<ServiceCoverage>,
-) {
-    coverage.coverage.clear();
-    let demand = game_state.total_inhabitants;
-    let service_types = [
-        ServiceType::Wellness,
-        ServiceType::Security,
-        ServiceType::Education,
-        ServiceType::Recreation,
-        ServiceType::Spiritual,
-    ];
 
-    for service_type in service_types {
-        if demand == 0 {
-            coverage.coverage.insert(service_type, 1.0);
-            continue;
-        }
-
-        let mut supply = 0;
-        for building in &game_state.service_buildings {
-            if building.service_type == service_type && building.is_active {
-                if let Some(tier) = building.available_tiers.get(building.current_tier_index) {
-                    if building.assigned_specialists >= tier.specialist_requirement {
-                        let in_range = if let Some(b_pos) = building.position {
-                            game_state.habitation_structures.iter().any(|hab| {
-                                if let Some(h_pos) = hab.position {
-                                    let dx = b_pos.0 - h_pos.0;
-                                    let dy = b_pos.1 - h_pos.1;
-                                    let dist2 = dx * dx + dy * dy;
-                                    dist2 <= tier.service_radius * tier.service_radius
-                                } else {
-                                    false
-                                }
-                            })
-                        } else {
-                            true
-                        };
-
-                        if in_range {
-                            supply += tier.service_capacity;
-                        }
-                    }
-                }
-            }
-        }
-
-        let ratio = (supply as f32 / demand as f32).min(1.0);
-        coverage.coverage.insert(service_type, ratio);
-    }
-}
-
-fn happiness_system(
-    mut game_state: ResMut<GameState>,
-    mut happiness: ResMut<HappinessResource>,
-    coverage: Res<ServiceCoverage>,
-) {
-    calculate_colony_happiness(&mut game_state, &coverage);
-    happiness.score = game_state.colony_happiness;
-}
-
-
-fn population_growth_system(
-    mut game_state: ResMut<GameState>,
-    mut population: ResMut<PopulationResource>,
-) {
-    // Keep population resource in sync with stored game state
-    population.count = game_state.total_inhabitants;
-
-    let has_housing = population.count < game_state.available_housing_capacity;
-    let food_amount = *game_state
-        .current_resources
-        .get(&ResourceType::NutrientPaste)
-        .unwrap_or(&0.0);
-    let has_food = food_amount > 0.0;
-
-    let happiness_factor = (game_state.colony_happiness - 50.0) / 50.0;
-    if has_housing && has_food && happiness_factor > 0.0 {
-        let growth_chance_per_sec = happiness_factor * 0.1;
-        if rand::thread_rng().gen::<f32>() < growth_chance_per_sec {
-            population.count += 1;
-        }
-    }
-
-    game_state.total_inhabitants = population.count;
-}
 
 // CORRECTED: This function is refactored to avoid borrow checker errors.
 fn workforce_assignment_system(mut game_state: ResMut<GameState>) {
@@ -1760,24 +1608,7 @@ fn update_colony_stats_system(mut stats: ResMut<ColonyStats>, game_state: Res<Ga
     stats.nutrient_paste = *game_state.current_resources.get(&ResourceType::NutrientPaste).unwrap_or(&0.0);
 }
 
-fn research_system(mut game_state: ResMut<GameState>) {
-    if game_state.research_institutes.iter().all(|ri| !ri.is_staffed) {
-        return;
-    }
-    let mut completed_tech: Option<Tech> = None;
-    if let Some((tech, progress)) = &game_state.research_progress {
-        let required_progress = game_state.tech_costs[tech] as f32;
-        if progress + 1.0 >= required_progress {
-            completed_tech = Some(*tech);
-        }
-    }
-    if let Some(tech) = completed_tech {
-        game_state.unlocked_techs.insert(tech);
-        game_state.research_progress = None;
-    } else if let Some((_, progress)) = &mut game_state.research_progress {
-        *progress += 1.0;
-    }
-}
+
 
 fn update_graph_data_system(stats: Res<ColonyStats>, mut graph_data: ResMut<GraphData>) {
     graph_data.history.push_front(*stats);
