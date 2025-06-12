@@ -2,11 +2,19 @@
 
 use bevy::prelude::*;
 use game_state::{
-    ColonyStats, GameState, GraphData, ResourceType, Tech, ALL_BUILDING_TYPES,
+    add_bio_dome, add_extractor, add_power_relay, add_research_institute, add_storage_silo,
+    construct_legacy_structure, get_legacy_structure_tiers, upgrade_legacy_structure,
+    ColonyStats,
+	GameState,
+	GraphData,
+	LoadGameEvent,
+	ResourceType,
+	SaveGameEvent,
+	Tech,
+    ALL_BUILDING_TYPES,
 };
 use std::collections::HashMap;
 
-// Import everything needed from game_state
 mod game_state;
 use game_state::{BuildingType as GameBuildingType, DevelopmentPhase, ServiceType, ZoneType};
 
@@ -23,7 +31,6 @@ const DISABLED_BUTTON: Color = Color::rgba(0.3, 0.1, 0.1, 0.8);
 
 // --- UI Marker Components ---
 
-// App Panels
 #[derive(Component)]
 struct DashboardPanel;
 #[derive(Component)]
@@ -33,11 +40,9 @@ struct ColonyStatusPanel;
 #[derive(Component)]
 struct ResearchPanel;
 
-// App Drawer
 #[derive(Component)]
 struct AppDrawerButton(AppType);
 
-// Top Status Ticker
 #[derive(Component)]
 struct CreditsText;
 #[derive(Component)]
@@ -51,7 +56,6 @@ struct CoreResourceText(ResourceType);
 #[derive(Component)]
 struct ColonyHappinessText;
 
-// Dashboard Components
 #[derive(Component)]
 struct NotificationsPanel;
 #[derive(Component)]
@@ -61,6 +65,12 @@ struct GraphArea;
 #[derive(Component)]
 struct AdminSpireInfoPanel;
 #[derive(Component)]
+struct LegacyStructurePanel;
+#[derive(Component)]
+struct ConstructLegacyStructureButton;
+#[derive(Component)]
+struct UpgradeLegacyStructureButton;
+#[derive(Component)]
 struct AdminSpireTierText;
 #[derive(Component)]
 struct ConstructSpireButton;
@@ -69,20 +79,23 @@ struct UpgradeSpireButton;
 #[derive(Component)]
 struct ManagedStructuresPanel;
 #[derive(Component)]
-struct ZoneListButton(String); // Holds Zone ID
+struct ZoneListButton(String);
 #[derive(Component)]
-struct ZoneDetailsPanel; // Panel for selected zone's details and actions
+struct ZoneDetailsPanel;
 #[derive(Component)]
-struct UpgradeZoneButton(String); // Holds Zone ID for upgrade action
+struct UpgradeZoneButton(String);
 #[derive(Component)]
-struct RemoveZoneButton(String); // Holds Zone ID for remove action
+struct RemoveZoneButton(String);
 #[derive(Component)]
-struct AssignSpecialistToZoneButton(String); // Holds Zone ID
+struct AssignSpecialistToZoneButton(String);
 #[derive(Component)]
-struct UnassignSpecialistFromZoneButton(String); // Holds Zone ID
+struct UnassignSpecialistFromZoneButton(String);
 
+#[derive(Component)]
+struct SaveGameButton;
+#[derive(Component)]
+struct LoadGameButton;
 
-// Construction Components
 #[derive(Component)]
 struct ConstructionCategoryTab(ConstructionCategory);
 #[derive(Component)]
@@ -94,14 +107,12 @@ struct ConstructionItemDetailsPanel;
 #[derive(Component)]
 struct ConfirmBuildButton(GameBuildingType);
 #[derive(Component)]
-struct ConstructHabitationButton(usize); // usize is tier_index
+struct ConstructHabitationButton(usize);
 #[derive(Component)]
-struct ConstructServiceButton(ServiceType, usize); // ServiceType, tier_index
+struct ConstructServiceButton(ServiceType, usize);
 #[derive(Component)]
-struct ConstructZoneButton(ZoneType, usize); // ZoneType, tier_index
+struct ConstructZoneButton(ZoneType, usize);
 
-
-// Colony Status Components
 #[derive(Component, Debug, Clone, Copy)]
 enum DiagnosticType {
     NutrientPaste,
@@ -114,8 +125,6 @@ enum DiagnosticType {
 #[derive(Component)]
 struct DiagnosticItem(DiagnosticType);
 
-
-// Research Components
 #[derive(Component)]
 struct AvailableResearchListPanel;
 #[derive(Component)]
@@ -124,7 +133,6 @@ struct ResearchItemButton(Tech);
 struct ResearchDetailsPanel;
 #[derive(Component)]
 struct InitiateResearchButton;
-
 
 // --- Resource & State Enums ---
 
@@ -158,7 +166,6 @@ pub struct SelectedTech(pub Option<Tech>);
 
 #[derive(Resource, Default)]
 pub struct SelectedZone(pub Option<String>);
-
 
 // --- Building Metadata ---
 
@@ -209,7 +216,7 @@ impl Plugin for UiPlugin {
             .init_resource::<CurrentConstructionCategory>()
             .init_resource::<SelectedBuilding>()
             .init_resource::<SelectedTech>()
-            .init_resource::<SelectedZone>() // Initialize SelectedZone
+            .init_resource::<SelectedZone>()
             .add_systems(Startup, setup_ui)
             .add_systems(Update, (
                 app_drawer_button_system,
@@ -217,15 +224,18 @@ impl Plugin for UiPlugin {
                 update_status_ticker_system,
                 update_dashboard_notifications_system,
                 update_admin_spire_panel_system,
+                update_legacy_structure_panel_system,
                 update_managed_structures_panel_system,
                 zone_list_button_interaction_system,
                 upgrade_zone_button_interaction_system,
                 remove_zone_button_interaction_system,
-                assign_specialist_to_zone_button_interaction_system, // Added new system
-                unassign_specialist_from_zone_button_interaction_system, // Added new system
+                assign_specialist_to_zone_button_interaction_system,
+                unassign_specialist_from_zone_button_interaction_system,
                 admin_spire_button_interaction_system,
+                legacy_structure_button_system,
                 draw_graph_gizmos,
                 construction_category_tab_system,
+                save_load_button_system,
             ))
             .add_systems(Update, (
                 update_construction_list_system,
@@ -234,7 +244,7 @@ impl Plugin for UiPlugin {
                 construction_interaction_system,
                 habitation_construction_system,
                 service_construction_system,
-                zone_construction_system, // Added new system
+                zone_construction_system,
                 update_colony_status_panel_system,
                 update_research_panel_system,
                 research_item_button_system,
@@ -242,6 +252,40 @@ impl Plugin for UiPlugin {
                 initiate_research_button_system,
             ));
     }
+}
+
+fn construction_interaction_system(
+    interaction_query: Query<&Interaction, (Changed<Interaction>, With<ConfirmBuildButton>)>,
+    selected_building: Res<SelectedBuilding>,
+    mut game_state: ResMut<GameState>,
+    time: Res<Time>,
+) {
+     if let Some(building_type) = selected_building.0 {
+        if let Ok(Interaction::Pressed) = interaction_query.get_single() {
+             let costs = game_state.building_costs.get(&building_type).unwrap().clone();
+
+             let can_afford = costs.iter().all(|(res, &req)| game_state.current_resources.get(res).unwrap_or(&0.0) >= &req);
+             if !can_afford {
+                 game_state::add_notification(&mut game_state.notifications, format!("Insufficient materials for {:?}.", building_type), time.elapsed_seconds_f64());
+                 return;
+             }
+
+             for (res, cost) in &costs {
+                 *game_state.current_resources.get_mut(res).unwrap() -= cost;
+             }
+
+             match building_type {
+                GameBuildingType::Extractor => add_extractor(&mut game_state),
+                GameBuildingType::BioDome => add_bio_dome(&mut game_state),
+                GameBuildingType::PowerRelay => add_power_relay(&mut game_state),
+                GameBuildingType::ResearchInstitute => add_research_institute(&mut game_state),
+                GameBuildingType::Fabricator => game_state::add_fabricator(&mut game_state, 0),
+                GameBuildingType::ProcessingPlant => game_state::add_processing_plant(&mut game_state, 0),
+                GameBuildingType::StorageSilo => add_storage_silo(&mut game_state),
+             }
+             game_state::add_notification(&mut game_state.notifications, format!("Construction started: {:?}", building_type), time.elapsed_seconds_f64());
+        }
+     }
 }
 
 fn zone_construction_system(
@@ -438,6 +482,19 @@ fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                                 border_color: BORDER_COLOR.into(),
                                 ..default()
                             }, AdminSpireInfoPanel));
+
+                            // New panel for Legacy Structure
+                            right_col.spawn((NodeBundle {
+                                style: Style {
+                                    flex_direction: FlexDirection::Column,
+                                    margin: UiRect::top(Val::Px(10.0)),
+                                    padding: UiRect::all(Val::Px(5.0)),
+                                    border: UiRect::all(Val::Px(1.0)),
+                                    ..default()
+                                },
+                                border_color: BORDER_COLOR.into(),
+                                ..default()
+                            }, LegacyStructurePanel));
 
                             // Add ManagedStructuresPanel here
                             right_col.spawn((
@@ -919,6 +976,31 @@ fn update_admin_spire_panel_system(
                     ));
                 });
             }
+
+            // Save and Load Buttons
+            parent.spawn(NodeBundle { style: Style {flex_direction: FlexDirection::Row, margin: UiRect::top(Val::Px(20.0)), ..default()}, ..default()})
+                .with_children(|buttons| {
+                    buttons.spawn((
+                        ButtonBundle {
+                            style: Style { flex_grow: 1.0, padding: UiRect::all(Val::Px(5.0)), margin: UiRect::right(Val::Px(2.0)), ..default() },
+                            background_color: NORMAL_BUTTON.into(),
+                            ..default()
+                        },
+                        SaveGameButton,
+                    )).with_children(|btn| {
+                        btn.spawn(TextBundle::from_section("Save", TextStyle { font_size: 14.0, color: PRIMARY_TEXT_COLOR, ..default()}));
+                    });
+                    buttons.spawn((
+                        ButtonBundle {
+                            style: Style { flex_grow: 1.0, padding: UiRect::all(Val::Px(5.0)), margin: UiRect::left(Val::Px(2.0)), ..default() },
+                            background_color: NORMAL_BUTTON.into(),
+                            ..default()
+                        },
+                        LoadGameButton,
+                    )).with_children(|btn| {
+                        btn.spawn(TextBundle::from_section("Load", TextStyle { font_size: 14.0, color: PRIMARY_TEXT_COLOR, ..default()}));
+                    });
+                });
         });
     }
 }
@@ -993,6 +1075,22 @@ fn admin_spire_button_interaction_system(
     }
 }
 
+fn save_load_button_system(
+    mut save_ew: EventWriter<SaveGameEvent>,
+    mut load_ew: EventWriter<LoadGameEvent>,
+    mut interaction_query: Query<(&Interaction, Option<&SaveGameButton>, Option<&LoadGameButton>), (Changed<Interaction>, With<Button>)>,
+) {
+    for (interaction, save_btn, load_btn) in &mut interaction_query {
+        if *interaction == Interaction::Pressed {
+            if save_btn.is_some() {
+                save_ew.send(SaveGameEvent);
+            }
+            if load_btn.is_some() {
+                load_ew.send(LoadGameEvent);
+            }
+        }
+    }
+}
 
 trait GraphableFn: Fn(&ColonyStats) -> f32 + Send + Sync {}
 impl<F: Fn(&ColonyStats) -> f32 + Send + Sync> GraphableFn for F {}
@@ -1423,5 +1521,83 @@ fn initiate_research_button_system(
                 }
             }
         }
+    }
+}
+
+// --- New Systems for Legacy Structure ---
+
+fn update_legacy_structure_panel_system(
+    game_state: Res<GameState>,
+    panel_query: Query<Entity, With<LegacyStructurePanel>>,
+    mut commands: Commands,
+) {
+    if !game_state.is_changed() { return; }
+
+    if let Ok(panel_entity) = panel_query.get_single() {
+        commands.entity(panel_entity).despawn_descendants();
+
+        commands.entity(panel_entity).with_children(|parent| {
+            parent.spawn(TextBundle::from_section("Legacy Structure", TextStyle{font_size: 16.0, color: PRIMARY_TEXT_COLOR, ..default()}));
+
+            if let Some(structure) = &game_state.legacy_structure {
+                let current_tier = &structure.available_tiers[structure.current_tier_index];
+                parent.spawn(TextBundle::from_section(format!("Tier: {}", current_tier.name), TextStyle{font_size: 14.0, color: LABEL_TEXT_COLOR, ..default()}));
+                parent.spawn(TextBundle::from_section(format!("Happiness: +{}", current_tier.happiness_bonus), TextStyle{font_size: 12.0, color: Color::LIME_GREEN, ..default()}));
+                parent.spawn(TextBundle::from_section(format!("Income: +{}/cycle", current_tier.income_bonus), TextStyle{font_size: 12.0, color: Color::GOLD, ..default()}));
+
+                if structure.current_tier_index < structure.available_tiers.len() - 1 {
+                    let next_tier = &structure.available_tiers[structure.current_tier_index + 1];
+                    let can_afford = game_state.credits >= next_tier.construction_credits_cost as f64;
+                    parent.spawn((
+                        ButtonBundle {
+                            style: Style { width: Val::Percent(100.0), padding: UiRect::all(Val::Px(5.0)), margin: UiRect::top(Val::Px(10.0)), ..default()},
+                            background_color: if can_afford { NORMAL_BUTTON.into() } else { DISABLED_BUTTON.into() },
+                            ..default()
+                        },
+                        UpgradeLegacyStructureButton
+                    )).with_children(|btn| {
+                        btn.spawn(TextBundle::from_section(
+                            format!("Upgrade to {}\n({} Cr)", next_tier.name, next_tier.construction_credits_cost),
+                            TextStyle{font_size: 14.0, color: PRIMARY_TEXT_COLOR, ..default()}
+                        ));
+                    });
+                } else {
+                    parent.spawn(TextBundle::from_section("Max Tier Reached", TextStyle{font_size: 14.0, color: Color::CYAN, ..default()}));
+                }
+            } else {
+                let tiers = get_legacy_structure_tiers();
+                let initial_tier = &tiers[0];
+                let can_afford = game_state.credits >= initial_tier.construction_credits_cost as f64;
+                parent.spawn((
+                    ButtonBundle {
+                        style: Style { width: Val::Percent(100.0), padding: UiRect::all(Val::Px(5.0)), margin: UiRect::top(Val::Px(10.0)), ..default()},
+                        background_color: if can_afford { NORMAL_BUTTON.into() } else { DISABLED_BUTTON.into() },
+                        ..default()
+                    },
+                    ConstructLegacyStructureButton
+                )).with_children(|btn| {
+                    btn.spawn(TextBundle::from_section(
+                        format!("Construct {}\n({} Cr)", initial_tier.name, initial_tier.construction_credits_cost),
+                        TextStyle{font_size: 14.0, color: PRIMARY_TEXT_COLOR, ..default()}
+                    ));
+                });
+            }
+        });
+    }
+}
+
+fn legacy_structure_button_system(
+    mut game_state: ResMut<GameState>,
+    mut interaction_query: ParamSet<(
+        Query<&Interaction, (Changed<Interaction>, With<ConstructLegacyStructureButton>)>,
+        Query<&Interaction, (Changed<Interaction>, With<UpgradeLegacyStructureButton>)>,
+    )>,
+) {
+    if let Ok(Interaction::Pressed) = interaction_query.p0().get_single() {
+        construct_legacy_structure(&mut game_state);
+    }
+
+    if let Ok(Interaction::Pressed) = interaction_query.p1().get_single() {
+        upgrade_legacy_structure(&mut game_state);
     }
 }

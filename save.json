@@ -1,0 +1,126 @@
+{
+  "administrativeSpire": {
+    "current_tier_index": 0,
+    "available_tiers": [
+      {
+        "name": "Command Post",
+        "power_requirement": 10,
+        "unlocks_phase": "DP1",
+        "nutrient_paste_link_required": false,
+        "construction_credits_cost": 1000,
+        "upgrade_credits_cost": 0
+      },
+      {
+        "name": "Integrated Command",
+        "power_requirement": 25,
+        "unlocks_phase": "DP2",
+        "nutrient_paste_link_required": true,
+        "construction_credits_cost": 0,
+        "upgrade_credits_cost": 2500
+      },
+      {
+        "name": "Planetary Nexus",
+        "power_requirement": 50,
+        "unlocks_phase": "DP3",
+        "nutrient_paste_link_required": true,
+        "construction_credits_cost": 0,
+        "upgrade_credits_cost": 5000
+      }
+    ]
+  },
+  "currentDevelopmentPhase": "DP1",
+  "currentResources": {
+    "AdvancedComponents": 0.0,
+    "NutrientPaste": 50.0,
+    "Power": 0.0,
+    "RawQuantium": 0.0,
+    "CuprumDeposits": 50.0,
+    "RefinedXylos": 0.0,
+    "RawXylos": 0.0,
+    "ProcessedQuantium": 0.0,
+    "ManufacturedGoods": 0.0,
+    "FerrocreteOre": 200.0
+  },
+  "buildingCosts": {
+    "Fabricator": {
+      "FerrocreteOre": 200.0
+    },
+    "Extractor": {
+      "FerrocreteOre": 75.0
+    },
+    "ProcessingPlant": {
+      "FerrocreteOre": 180.0
+    },
+    "PowerRelay": {
+      "FerrocreteOre": 60.0
+    },
+    "ResearchInstitute": {
+      "FerrocreteOre": 150.0
+    },
+    "StorageSilo": {
+      "FerrocreteOre": 100.0
+    },
+    "BioDome": {
+      "FerrocreteOre": 50.0
+    }
+  },
+  "unlockedTechs": [],
+  "researchProgress": null,
+  "techCosts": {
+    "EfficientExtraction": 250,
+    "BasicConstructionProtocols": 100
+  },
+  "habitationStructures": [],
+  "totalInhabitants": 5,
+  "assignedWorkforce": 0,
+  "availableHousingCapacity": 0,
+  "totalSpecialistSlots": 0,
+  "assignedSpecialistsTotal": 0,
+  "serviceBuildings": [],
+  "zones": [],
+  "civicIndex": 0,
+  "colonyHappiness": 20.0,
+  "legacyStructureHappinessBonus": 0.0,
+  "simulatedHasSufficientNutrientPaste": true,
+  "fabricators": [],
+  "processingPlants": [],
+  "unlockedRawMaterials": [],
+  "credits": 9000.0,
+  "legacyStructureIncomeBonus": 0.0,
+  "totalGeneratedPower": 0.0,
+  "totalConsumedPower": 10.0,
+  "notifications": [
+    {
+      "message": "Insufficient power to upgrade Spire.",
+      "timestamp": 0.0
+    },
+    {
+      "message": "Insufficient power to upgrade Spire.",
+      "timestamp": 0.0
+    },
+    {
+      "message": "Insufficient power to upgrade Spire.",
+      "timestamp": 0.0
+    },
+    {
+      "message": "Insufficient power to upgrade Spire.",
+      "timestamp": 0.0
+    },
+    {
+      "message": "Constructed Administrative Spire.",
+      "timestamp": 0.0
+    },
+    {
+      "message": "A strange signal was briefly detected from the nearby asteroid belt.",
+      "timestamp": 0.2
+    },
+    {
+      "message": "Low power levels detected early in the simulation.",
+      "timestamp": 0.1
+    },
+    {
+      "message": "Colony established. Welcome, Commander!",
+      "timestamp": 0.0
+    }
+  ]
+}
