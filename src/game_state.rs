@@ -642,6 +642,17 @@ impl Default for HappinessResource {
     }
 }
 
+#[derive(Resource, Serialize, Deserialize, Clone)]
+pub struct ServiceCoverage {
+    pub coverage: HashMap<ServiceType, f32>,
+}
+
+impl Default for ServiceCoverage {
+    fn default() -> Self {
+        ServiceCoverage { coverage: HashMap::new() }
+    }
+}
+
 #[derive(Resource, Default, Serialize, Deserialize, Clone)]
 pub struct GraphData {
     pub history: VecDeque<ColonyStats>,
@@ -905,7 +916,7 @@ pub fn fabricator_production_system(game_state: &mut GameState, time_delta_secs:
     }
 }
 
-pub fn calculate_colony_happiness(game_state: &mut GameState) {
+pub fn calculate_colony_happiness(game_state: &mut GameState, coverage: &ServiceCoverage) {
     let mut happiness_score = 50.0;
 
     // --- BASE & RESOURCE MODIFIERS ---
@@ -946,25 +957,12 @@ pub fn calculate_colony_happiness(game_state: &mut GameState) {
     ];
 
     for service_type in service_types {
-        let demand = game_state.total_inhabitants;
-        if demand == 0 { continue; }
-
-        let mut supply = 0;
-        for building in &game_state.service_buildings {
-            if building.service_type == service_type && building.is_active {
-                if let Some(tier) = building.available_tiers.get(building.current_tier_index) {
-                    if building.assigned_specialists >= tier.specialist_requirement {
-                        supply += tier.service_capacity;
-                    }
-                }
+        if let Some(ratio) = coverage.coverage.get(&service_type) {
+            if *ratio >= 1.0 {
+                happiness_score += 5.0;
+            } else {
+                happiness_score -= (1.0 - ratio) * 10.0;
             }
-        }
-
-        if supply >= demand {
-            happiness_score += 5.0; // Needs fully met provides a small bonus
-        } else {
-            let coverage_ratio = supply as f32 / demand as f32;
-            happiness_score -= (1.0 - coverage_ratio) * 10.0; // Penalty scales with lack of coverage
         }
     }
 
@@ -1423,6 +1421,7 @@ impl Plugin for GameLogicPlugin {
         app.init_resource::<GameState>()
             .init_resource::<PopulationResource>()
             .init_resource::<HappinessResource>()
+            .init_resource::<ServiceCoverage>()
             .init_resource::<ColonyStats>()
             .init_resource::<GraphData>()
             .add_event::<SaveGameEvent>()
@@ -1437,7 +1436,8 @@ impl Plugin for GameLogicPlugin {
                     fabricator_production_tick_system.after(game_tick_system),
                     processing_plant_operations_tick_system.after(game_tick_system),
                     upkeep_income_tick_system.after(processing_plant_operations_tick_system),
-                    happiness_system.after(upkeep_income_tick_system),
+                    service_coverage_system.after(upkeep_income_tick_system),
+                    happiness_system.after(service_coverage_system),
                     update_colony_stats_system.after(happiness_system),
                     update_graph_data_system.after(update_colony_stats_system),
                 ),
@@ -1537,11 +1537,48 @@ fn fabricator_production_tick_system(mut game_state: ResMut<GameState>, time: Re
     fabricator_production_system(&mut game_state, time.delta_seconds());
 }
 
+fn service_coverage_system(
+    game_state: Res<GameState>,
+    mut coverage: ResMut<ServiceCoverage>,
+) {
+    coverage.coverage.clear();
+    let demand = game_state.total_inhabitants;
+    let service_types = [
+        ServiceType::Wellness,
+        ServiceType::Security,
+        ServiceType::Education,
+        ServiceType::Recreation,
+        ServiceType::Spiritual,
+    ];
+
+    for service_type in service_types {
+        if demand == 0 {
+            coverage.coverage.insert(service_type, 1.0);
+            continue;
+        }
+
+        let mut supply = 0;
+        for building in &game_state.service_buildings {
+            if building.service_type == service_type && building.is_active {
+                if let Some(tier) = building.available_tiers.get(building.current_tier_index) {
+                    if building.assigned_specialists >= tier.specialist_requirement {
+                        supply += tier.service_capacity;
+                    }
+                }
+            }
+        }
+
+        let ratio = (supply as f32 / demand as f32).min(1.0);
+        coverage.coverage.insert(service_type, ratio);
+    }
+}
+
 fn happiness_system(
     mut game_state: ResMut<GameState>,
     mut happiness: ResMut<HappinessResource>,
+    coverage: Res<ServiceCoverage>,
 ) {
-    calculate_colony_happiness(&mut game_state);
+    calculate_colony_happiness(&mut game_state, &coverage);
     happiness.score = game_state.colony_happiness;
 }
 
