@@ -14,8 +14,12 @@ use game_state::{
     ALL_BUILDING_TYPES,
 };
 use std::collections::HashMap;
+use first_hour_tooltips::TutorialPlugin;
+use alerts::AlertPlugin;
 
 mod game_state;
+mod first_hour_tooltips;
+mod alerts;
 use game_state::{BuildingType as GameBuildingType, DevelopmentPhase, ServiceType, ZoneType};
 
 // --- Color & Style Constants ---
@@ -204,6 +208,8 @@ fn main() {
             }),
             game_state::GameLogicPlugin,
             UiPlugin,
+            TutorialPlugin,
+            AlertPlugin,
         ))
         .insert_resource(Time::<Fixed>::from_seconds(1.0))
         .run();
