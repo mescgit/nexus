@@ -620,6 +620,17 @@ pub struct ColonyStats {
     pub nutrient_paste: f32,
 }
 
+#[derive(Resource, Serialize, Deserialize, Clone)]
+pub struct PopulationResource {
+    pub count: u32,
+}
+
+impl Default for PopulationResource {
+    fn default() -> Self {
+        PopulationResource { count: 5 }
+    }
+}
+
 #[derive(Resource, Default, Serialize, Deserialize, Clone)]
 pub struct GraphData {
     pub history: VecDeque<ColonyStats>,
@@ -1086,28 +1097,6 @@ pub fn remove_habitation_structure(game_state: &mut GameState, structure_id: &st
     game_state.assigned_specialists_total = game_state.assigned_specialists_total.min(game_state.total_inhabitants).min(game_state.total_specialist_slots);
 }
 
-pub fn grow_inhabitants(game_state: &mut GameState) {
-    // Growth is probabilistic, based on happiness.
-    // A score of 50 is neutral. Below 50 risks population decline (not implemented yet).
-    // Above 50 increases growth chance.
-    let happiness_factor = (game_state.colony_happiness - 50.0) / 50.0; // Range from -1.0 to 1.0
-
-    if happiness_factor <= 0.0 {
-        return; // No growth if happiness is 50 or less
-    }
-
-    // The chance to gain an inhabitant per second.
-    // At 100 happiness, chance is 0.1 (or 10%) per second.
-    // At 75 happiness, chance is 0.05 (or 5%) per second.
-    let growth_chance_per_sec = happiness_factor * 0.1;
-
-    if rand::thread_rng().gen::<f32>() < growth_chance_per_sec {
-        if game_state.total_inhabitants < game_state.available_housing_capacity {
-            let growth_amount = 1;
-            game_state.total_inhabitants += growth_amount;
-        }
-    }
-}
 
 
 pub fn assign_specialists_to_structure(game_state: &mut GameState, structure_id: &str, num_to_assign: u32) {
@@ -1421,6 +1410,7 @@ pub struct GameLogicPlugin;
 impl Plugin for GameLogicPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<GameState>()
+            .init_resource::<PopulationResource>()
             .init_resource::<ColonyStats>()
             .init_resource::<GraphData>()
             .add_event::<SaveGameEvent>()
@@ -1431,7 +1421,7 @@ impl Plugin for GameLogicPlugin {
                     workforce_assignment_system,
                     game_tick_system.after(workforce_assignment_system),
                     research_system,
-                    grow_inhabitants_system.after(game_tick_system),
+                    population_growth_system.after(game_tick_system),
                     fabricator_production_tick_system.after(game_tick_system),
                     processing_plant_operations_tick_system.after(game_tick_system),
                     upkeep_income_tick_system.after(processing_plant_operations_tick_system),
@@ -1540,8 +1530,29 @@ fn calculate_colony_happiness_system(mut game_state: ResMut<GameState>) {
 }
 
 
-fn grow_inhabitants_system(mut game_state: ResMut<GameState>) {
-    grow_inhabitants(&mut game_state);
+fn population_growth_system(
+    mut game_state: ResMut<GameState>,
+    mut population: ResMut<PopulationResource>,
+) {
+    // Keep population resource in sync with stored game state
+    population.count = game_state.total_inhabitants;
+
+    let has_housing = population.count < game_state.available_housing_capacity;
+    let food_amount = *game_state
+        .current_resources
+        .get(&ResourceType::NutrientPaste)
+        .unwrap_or(&0.0);
+    let has_food = food_amount > 0.0;
+
+    let happiness_factor = (game_state.colony_happiness - 50.0) / 50.0;
+    if has_housing && has_food && happiness_factor > 0.0 {
+        let growth_chance_per_sec = happiness_factor * 0.1;
+        if rand::thread_rng().gen::<f32>() < growth_chance_per_sec {
+            population.count += 1;
+        }
+    }
+
+    game_state.total_inhabitants = population.count;
 }
 
 // CORRECTED: This function is refactored to avoid borrow checker errors.
