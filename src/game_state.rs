@@ -631,6 +631,17 @@ impl Default for PopulationResource {
     }
 }
 
+#[derive(Resource, Serialize, Deserialize, Clone)]
+pub struct HappinessResource {
+    pub score: f32,
+}
+
+impl Default for HappinessResource {
+    fn default() -> Self {
+        HappinessResource { score: 50.0 }
+    }
+}
+
 #[derive(Resource, Default, Serialize, Deserialize, Clone)]
 pub struct GraphData {
     pub history: VecDeque<ColonyStats>,
@@ -1411,6 +1422,7 @@ impl Plugin for GameLogicPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<GameState>()
             .init_resource::<PopulationResource>()
+            .init_resource::<HappinessResource>()
             .init_resource::<ColonyStats>()
             .init_resource::<GraphData>()
             .add_event::<SaveGameEvent>()
@@ -1425,8 +1437,8 @@ impl Plugin for GameLogicPlugin {
                     fabricator_production_tick_system.after(game_tick_system),
                     processing_plant_operations_tick_system.after(game_tick_system),
                     upkeep_income_tick_system.after(processing_plant_operations_tick_system),
-                    calculate_colony_happiness_system.after(upkeep_income_tick_system),
-                    update_colony_stats_system.after(calculate_colony_happiness_system),
+                    happiness_system.after(upkeep_income_tick_system),
+                    update_colony_stats_system.after(happiness_system),
                     update_graph_data_system.after(update_colony_stats_system),
                 ),
             )
@@ -1525,8 +1537,12 @@ fn fabricator_production_tick_system(mut game_state: ResMut<GameState>, time: Re
     fabricator_production_system(&mut game_state, time.delta_seconds());
 }
 
-fn calculate_colony_happiness_system(mut game_state: ResMut<GameState>) {
+fn happiness_system(
+    mut game_state: ResMut<GameState>,
+    mut happiness: ResMut<HappinessResource>,
+) {
     calculate_colony_happiness(&mut game_state);
+    happiness.score = game_state.colony_happiness;
 }
 
 
