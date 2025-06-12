@@ -1,0 +1,103 @@
+**Nexus Core: Colony Manager - Development Roadmap**
+
+---
+
+**PHASE 1: CORE INFRASTRUCTURE**
+
+1. **Basic Game State Setup**
+
+   * App bootstrapping, game state management
+   * ECS scaffolding for resources and components
+
+2. **Resource & Power Systems**
+
+   * Resource types: Ferrocrete, Silica, Food, Power
+   * Extractors generate resources, require power
+   * Power Grid: Operations Hub, Power Relay mechanics
+
+3. **Construction System**
+
+   * Building placement UI
+   * Placement validation: space, terrain, cost, power reach
+   * Entity spawning: tagged building types
+
+---
+
+**PHASE 2: POPULATION & SERVICES**
+
+4. **Population System**
+
+   * PopulationResource tracks: total pop, capacity, food, happiness
+   * Growth logic: needs food, housing, services, happiness
+   * Food consumption loop
+
+5. **Housing & Food**
+
+   * Basic Dwelling: adds housing capacity
+   * Bio-Dome: produces Nutrient Paste
+
+6. **Service Coverage System**
+
+   * Radius-based influence: healthcare, security, education
+   * Buildings: Wellness Post, Security Station, Education Node
+   * UI: hover to visualize coverage zones
+
+7. **Happiness System**
+
+   * Global and sector happiness tracked
+   * Factors: food supply, housing, service access, crowding
+   * Affects growth rate, future events, worker efficiency
+
+---
+
+**PHASE 3: RESEARCH & PROGRESSION**
+
+8. **Research System**
+
+   * Unlocks new building types, upgrades, efficiency
+   * Requires Research Institute
+   * UI: tech tree panel, branching options
+
+9. **Development Phases**
+
+   * DP1: Basic Infrastructure
+   * DP2: Advanced Industry
+   * DP3: Specialization / Legacy structures
+   * Gates building visibility & global events
+
+10. **Legacy System**
+
+    * High-tier buildings (e.g., Genesis Monument)
+    * Require massive resources & full civic development
+    * Optional prestige or victory mechanic
+
+---
+
+**PHASE 4: UI & TUTORIALS**
+
+11. **Tablet UI Theme**
+
+    * Responsive screen layout, screen switching
+    * Panels: Dashboard, Research, Build, Stats
+
+12. **Tooltip Tutorial System**
+
+    * TooltipStep resource list
+    * Triggered guidance based on game state
+    * Highlights UI elements dynamically
+
+13. **Game Flow Polish**
+
+    * Alert system: civic problems, power outage, resource cap
+    * Onboarding: first hour flow, unlocks and guidance
+    * SFX / visual polish for feedback
+
+---
+
+**FUTURE / OPTIONAL**
+
+* Procedural maps
+* Crisis events: fires, disease, rebellion
+* Economic trade system
+* Citizen detail view / simulation
+* AI Governor automation mode

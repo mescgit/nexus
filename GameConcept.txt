@@ -1,0 +1,142 @@
+**NEXUS CORE – COMBINED CITY-BUILDING MECHANICS (BASED ON MANKIND + TECHNICAL DESIGN)**
+
+---
+
+**GAME OVERVIEW**
+Nexus Core: Colony Manager is a futuristic city-building simulation drawing inspiration from classic mechanics like the Mankind MMO and expanding them into a modern, modular system. Players manage a growing colony on an alien world, balancing power, resources, housing, population happiness, research, and civic services across multiple development phases.
+
+---
+
+**CORE SYSTEMS AND BUILDINGS**
+
+**1. POWER & ENERGY**
+
+* *Operations Hub*: Central power source. Required for basic operations.
+* *Power Relay*: Extends power range to other buildings.
+* **Dependencies**: All buildings (except Hub) require power to function.
+
+**2. RESOURCE EXTRACTION**
+
+* *Basic Extractor*: Produces Ferrocrete or Silica.
+* *Advanced Extractor*: Later-game high-yield variant.
+* **Resource Dependency Tree**: Power → Extractor → Resource → Storage
+
+**3. STORAGE & LOGISTICS**
+
+* *Storage Unit*: Increases global resource cap.
+* *Transport Depot*: Improves efficiency, allows future trade.
+
+**4. HOUSING**
+
+* *Basic Dwelling*: Provides housing for citizens.
+* *Habitat Pod*: Mid-tier housing.
+* *Hab Complex*: Late-tier housing, higher density.
+
+**5. FOOD PRODUCTION**
+
+* *Bio-Dome*: Produces Nutrient Paste.
+* *Agri-Tower*: Advanced food output structure.
+* **Growth Dependency**: Food + Housing + Happiness = Population Growth
+
+**6. SERVICES**
+
+* *Wellness Post*: Provides basic healthcare.
+* *Security Station*: Prevents unrest, improves happiness.
+* *Education Node*: Unlocks advanced research, raises specialist efficiency.
+
+**7. CIVIC HAPPINESS SYSTEM**
+
+* Affected by:
+
+  * Food availability
+  * Housing crowding
+  * Service coverage radius
+  * Pollution (future mechanic)
+* Influences:
+
+  * Growth speed
+  * Worker productivity
+  * Unlocks / events
+
+**8. SPECIALISTS**
+
+* Citizens automatically become Specialists when free housing, food, and happiness requirements are met.
+* Specialists are assigned to buildings that require advanced roles (e.g., Research Institute).
+
+**9. RESEARCH SYSTEM**
+
+* Requires: Research Institute + Specialists
+* Branching tech tree that unlocks:
+
+  * Efficiency upgrades
+  * New building types
+  * Unique colony enhancements (cloning, automation, terraforming)
+
+**10. DEVELOPMENT PHASES (DP)**
+
+* DP1: Infrastructure Era (housing, food, power)
+* DP2: Civic Era (services, specialists, advanced extractors)
+* DP3: Expansion Era (research, trade, large-scale buildings)
+* DP4: Legacy Era (Genesis Monument, orbital uplink)
+
+**11. LEGACY STRUCTURES**
+
+* *Genesis Monument*: Endgame structure; requires:
+
+  * Max pop
+  * 100% happiness
+  * Full research tree
+  * Massive resources
+
+---
+
+**GAME MECHANICS & FORMULAS**
+
+**Population Growth**
+
+```text
+Growth Rate = (Population * 0.01) * FoodFactor * HousingFactor * HappinessFactor
+FoodFactor = available_food / (population * food_per_person)
+HappinessFactor = happiness / 100
+HousingFactor = (housing_capacity - population) / housing_capacity
+```
+
+**Happiness Calculation**
+
+```text
+Happiness = base + (service_coverage_bonus) - (crowding_penalty) - (starvation_penalty)
+```
+
+**Resource Production Rate**
+
+```text
+Rate = BaseRate * PowerModifier * SpecialistModifier * UpgradeModifier
+```
+
+**Research Unlock**
+
+* Costs: time, specialists, resources
+* Unlocks specific buildings and systems
+* Can trigger phase progression
+
+---
+
+**UI & USER EXPERIENCE**
+
+* *Tablet Interface*: Emulates in-game colony command device
+* *Panels*: Build, Dashboard, Research, Status
+* *Tooltips*: Context-aware tutorial popups triggered by in-game events
+* *Alert System*: Power outages, unrest, food shortage, etc.
+
+---
+
+**FUTURE FEATURES**
+
+* Procedural terrain and sectors
+* Crisis system: fires, plagues, political unrest
+* AI automation (Governor Mode)
+* Multiplayer economy/trade overlays
+
+---
+
+This unified document serves as the foundation for developing all colony simulation logic, user flow, and progression dynamics in Nexus Core.
