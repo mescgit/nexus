@@ -194,6 +194,7 @@ pub struct HabitationStructure {
     pub available_tiers: Vec<HabitationStructureTier>,
     pub current_inhabitants: u32,
     pub assigned_specialists: u32,
+    pub position: Option<(f32, f32)>,
 }
 
 // --- Service Building Data Structures ---
@@ -212,6 +213,7 @@ pub struct ServiceBuildingTier {
     pub name: String,
     pub specialist_requirement: u32,
     pub service_capacity: u32,
+    pub service_radius: f32,
     pub upkeep_cost: u32,
     pub civic_index_contribution: u32,
     pub construction_credits_cost: u32,
@@ -620,6 +622,39 @@ pub struct ColonyStats {
     pub nutrient_paste: f32,
 }
 
+#[derive(Resource, Serialize, Deserialize, Clone)]
+pub struct PopulationResource {
+    pub count: u32,
+}
+
+impl Default for PopulationResource {
+    fn default() -> Self {
+        PopulationResource { count: 5 }
+    }
+}
+
+#[derive(Resource, Serialize, Deserialize, Clone)]
+pub struct HappinessResource {
+    pub score: f32,
+}
+
+impl Default for HappinessResource {
+    fn default() -> Self {
+        HappinessResource { score: 50.0 }
+    }
+}
+
+#[derive(Resource, Serialize, Deserialize, Clone)]
+pub struct ServiceCoverage {
+    pub coverage: HashMap<ServiceType, f32>,
+}
+
+impl Default for ServiceCoverage {
+    fn default() -> Self {
+        ServiceCoverage { coverage: HashMap::new() }
+    }
+}
+
 #[derive(Resource, Default, Serialize, Deserialize, Clone)]
 pub struct GraphData {
     pub history: VecDeque<ColonyStats>,
@@ -883,7 +918,7 @@ pub fn fabricator_production_system(game_state: &mut GameState, time_delta_secs:
     }
 }
 
-pub fn calculate_colony_happiness(game_state: &mut GameState) {
+pub fn calculate_colony_happiness(game_state: &mut GameState, coverage: &ServiceCoverage) {
     let mut happiness_score = 50.0;
 
     // --- BASE & RESOURCE MODIFIERS ---
@@ -924,25 +959,12 @@ pub fn calculate_colony_happiness(game_state: &mut GameState) {
     ];
 
     for service_type in service_types {
-        let demand = game_state.total_inhabitants;
-        if demand == 0 { continue; }
-
-        let mut supply = 0;
-        for building in &game_state.service_buildings {
-            if building.service_type == service_type && building.is_active {
-                if let Some(tier) = building.available_tiers.get(building.current_tier_index) {
-                    if building.assigned_specialists >= tier.specialist_requirement {
-                        supply += tier.service_capacity;
-                    }
-                }
+        if let Some(ratio) = coverage.coverage.get(&service_type) {
+            if *ratio >= 1.0 {
+                happiness_score += 5.0;
+            } else {
+                happiness_score -= (1.0 - ratio) * 10.0;
             }
-        }
-
-        if supply >= demand {
-            happiness_score += 5.0; // Needs fully met provides a small bonus
-        } else {
-            let coverage_ratio = supply as f32 / demand as f32;
-            happiness_score -= (1.0 - coverage_ratio) * 10.0; // Penalty scales with lack of coverage
         }
     }
 
@@ -1015,7 +1037,11 @@ pub fn update_housing_and_specialist_slots(game_state: &mut GameState) {
     game_state.total_specialist_slots = total_slots;
 }
 
-pub fn add_habitation_structure(game_state: &mut GameState, tier_index: usize) {
+pub fn add_habitation_structure(
+    game_state: &mut GameState,
+    tier_index: usize,
+    position: Option<(f32, f32)>,
+) {
     let all_tiers = get_habitation_tiers();
     if tier_index >= all_tiers.len() {
         return;
@@ -1035,6 +1061,7 @@ pub fn add_habitation_structure(game_state: &mut GameState, tier_index: usize) {
         available_tiers: all_tiers.clone(),
         current_inhabitants: 0,
         assigned_specialists: 0,
+        position,
     };
     game_state.habitation_structures.push(new_structure);
     update_housing_and_specialist_slots(game_state);
@@ -1086,28 +1113,6 @@ pub fn remove_habitation_structure(game_state: &mut GameState, structure_id: &st
     game_state.assigned_specialists_total = game_state.assigned_specialists_total.min(game_state.total_inhabitants).min(game_state.total_specialist_slots);
 }
 
-pub fn grow_inhabitants(game_state: &mut GameState) {
-    // Growth is probabilistic, based on happiness.
-    // A score of 50 is neutral. Below 50 risks population decline (not implemented yet).
-    // Above 50 increases growth chance.
-    let happiness_factor = (game_state.colony_happiness - 50.0) / 50.0; // Range from -1.0 to 1.0
-
-    if happiness_factor <= 0.0 {
-        return; // No growth if happiness is 50 or less
-    }
-
-    // The chance to gain an inhabitant per second.
-    // At 100 happiness, chance is 0.1 (or 10%) per second.
-    // At 75 happiness, chance is 0.05 (or 5%) per second.
-    let growth_chance_per_sec = happiness_factor * 0.1;
-
-    if rand::thread_rng().gen::<f32>() < growth_chance_per_sec {
-        if game_state.total_inhabitants < game_state.available_housing_capacity {
-            let growth_amount = 1;
-            game_state.total_inhabitants += growth_amount;
-        }
-    }
-}
 
 
 pub fn assign_specialists_to_structure(game_state: &mut GameState, structure_id: &str, num_to_assign: u32) {
@@ -1151,16 +1156,16 @@ pub fn unassign_specialists_from_structure(game_state: &mut GameState, structure
 pub fn get_service_building_tiers(service_type: ServiceType) -> Vec<ServiceBuildingTier> {
     match service_type {
         ServiceType::Wellness => vec![
-            ServiceBuildingTier { name: "Clinic".to_string(), specialist_requirement: 2, service_capacity: 50, upkeep_cost: 10, civic_index_contribution: 5, construction_credits_cost: 150, required_tech: None },
-            ServiceBuildingTier { name: "Hospital".to_string(), specialist_requirement: 5, service_capacity: 250, upkeep_cost: 30, civic_index_contribution: 15, construction_credits_cost: 400, required_tech: None },
+            ServiceBuildingTier { name: "Clinic".to_string(), specialist_requirement: 2, service_capacity: 50, service_radius: 50.0, upkeep_cost: 10, civic_index_contribution: 5, construction_credits_cost: 150, required_tech: None },
+            ServiceBuildingTier { name: "Hospital".to_string(), specialist_requirement: 5, service_capacity: 250, service_radius: 75.0, upkeep_cost: 30, civic_index_contribution: 15, construction_credits_cost: 400, required_tech: None },
         ],
         ServiceType::Security => vec![
-            ServiceBuildingTier { name: "Security Post".to_string(), specialist_requirement: 3, service_capacity: 50, upkeep_cost: 15, civic_index_contribution: 5, construction_credits_cost: 150, required_tech: None },
-            ServiceBuildingTier { name: "Precinct".to_string(), specialist_requirement: 7, service_capacity: 250, upkeep_cost: 40, civic_index_contribution: 15, construction_credits_cost: 450, required_tech: None },
+            ServiceBuildingTier { name: "Security Post".to_string(), specialist_requirement: 3, service_capacity: 50, service_radius: 50.0, upkeep_cost: 15, civic_index_contribution: 5, construction_credits_cost: 150, required_tech: None },
+            ServiceBuildingTier { name: "Precinct".to_string(), specialist_requirement: 7, service_capacity: 250, service_radius: 75.0, upkeep_cost: 40, civic_index_contribution: 15, construction_credits_cost: 450, required_tech: None },
         ],
-        ServiceType::Education => vec![ ServiceBuildingTier { name: "School".to_string(), specialist_requirement: 4, service_capacity: 100, upkeep_cost: 25, civic_index_contribution: 10, construction_credits_cost: 300, required_tech: None } ],
-        ServiceType::Recreation => vec![ ServiceBuildingTier { name: "Rec Center".to_string(), specialist_requirement: 3, service_capacity: 100, upkeep_cost: 20, civic_index_contribution: 8, construction_credits_cost: 250, required_tech: None } ],
-        ServiceType::Spiritual => vec![ ServiceBuildingTier { name: "Sanctum".to_string(), specialist_requirement: 2, service_capacity: 100, upkeep_cost: 10, civic_index_contribution: 3, construction_credits_cost: 200, required_tech: None } ],
+        ServiceType::Education => vec![ ServiceBuildingTier { name: "School".to_string(), specialist_requirement: 4, service_capacity: 100, service_radius: 60.0, upkeep_cost: 25, civic_index_contribution: 10, construction_credits_cost: 300, required_tech: None } ],
+        ServiceType::Recreation => vec![ ServiceBuildingTier { name: "Rec Center".to_string(), specialist_requirement: 3, service_capacity: 100, service_radius: 60.0, upkeep_cost: 20, civic_index_contribution: 8, construction_credits_cost: 250, required_tech: None } ],
+        ServiceType::Spiritual => vec![ ServiceBuildingTier { name: "Sanctum".to_string(), specialist_requirement: 2, service_capacity: 100, service_radius: 60.0, upkeep_cost: 10, civic_index_contribution: 3, construction_credits_cost: 200, required_tech: None } ],
     }
 }
 
@@ -1421,6 +1426,9 @@ pub struct GameLogicPlugin;
 impl Plugin for GameLogicPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<GameState>()
+            .init_resource::<PopulationResource>()
+            .init_resource::<HappinessResource>()
+            .init_resource::<ServiceCoverage>()
             .init_resource::<ColonyStats>()
             .init_resource::<GraphData>()
             .add_event::<SaveGameEvent>()
@@ -1431,12 +1439,13 @@ impl Plugin for GameLogicPlugin {
                     workforce_assignment_system,
                     game_tick_system.after(workforce_assignment_system),
                     research_system,
-                    grow_inhabitants_system.after(game_tick_system),
+                    population_growth_system.after(game_tick_system),
                     fabricator_production_tick_system.after(game_tick_system),
                     processing_plant_operations_tick_system.after(game_tick_system),
                     upkeep_income_tick_system.after(processing_plant_operations_tick_system),
-                    calculate_colony_happiness_system.after(upkeep_income_tick_system),
-                    update_colony_stats_system.after(calculate_colony_happiness_system),
+                    service_coverage_system.after(upkeep_income_tick_system),
+                    happiness_system.after(service_coverage_system),
+                    update_colony_stats_system.after(happiness_system),
                     update_graph_data_system.after(update_colony_stats_system),
                 ),
             )
@@ -1535,13 +1544,92 @@ fn fabricator_production_tick_system(mut game_state: ResMut<GameState>, time: Re
     fabricator_production_system(&mut game_state, time.delta_seconds());
 }
 
-fn calculate_colony_happiness_system(mut game_state: ResMut<GameState>) {
-    calculate_colony_happiness(&mut game_state);
+fn service_coverage_system(
+    game_state: Res<GameState>,
+    mut coverage: ResMut<ServiceCoverage>,
+) {
+    coverage.coverage.clear();
+    let demand = game_state.total_inhabitants;
+    let service_types = [
+        ServiceType::Wellness,
+        ServiceType::Security,
+        ServiceType::Education,
+        ServiceType::Recreation,
+        ServiceType::Spiritual,
+    ];
+
+    for service_type in service_types {
+        if demand == 0 {
+            coverage.coverage.insert(service_type, 1.0);
+            continue;
+        }
+
+        let mut supply = 0;
+        for building in &game_state.service_buildings {
+            if building.service_type == service_type && building.is_active {
+                if let Some(tier) = building.available_tiers.get(building.current_tier_index) {
+                    if building.assigned_specialists >= tier.specialist_requirement {
+                        let in_range = if let Some(b_pos) = building.position {
+                            game_state.habitation_structures.iter().any(|hab| {
+                                if let Some(h_pos) = hab.position {
+                                    let dx = b_pos.0 - h_pos.0;
+                                    let dy = b_pos.1 - h_pos.1;
+                                    let dist2 = dx * dx + dy * dy;
+                                    dist2 <= tier.service_radius * tier.service_radius
+                                } else {
+                                    false
+                                }
+                            })
+                        } else {
+                            true
+                        };
+
+                        if in_range {
+                            supply += tier.service_capacity;
+                        }
+                    }
+                }
+            }
+        }
+
+        let ratio = (supply as f32 / demand as f32).min(1.0);
+        coverage.coverage.insert(service_type, ratio);
+    }
+}
+
+fn happiness_system(
+    mut game_state: ResMut<GameState>,
+    mut happiness: ResMut<HappinessResource>,
+    coverage: Res<ServiceCoverage>,
+) {
+    calculate_colony_happiness(&mut game_state, &coverage);
+    happiness.score = game_state.colony_happiness;
 }
 
 
-fn grow_inhabitants_system(mut game_state: ResMut<GameState>) {
-    grow_inhabitants(&mut game_state);
+fn population_growth_system(
+    mut game_state: ResMut<GameState>,
+    mut population: ResMut<PopulationResource>,
+) {
+    // Keep population resource in sync with stored game state
+    population.count = game_state.total_inhabitants;
+
+    let has_housing = population.count < game_state.available_housing_capacity;
+    let food_amount = *game_state
+        .current_resources
+        .get(&ResourceType::NutrientPaste)
+        .unwrap_or(&0.0);
+    let has_food = food_amount > 0.0;
+
+    let happiness_factor = (game_state.colony_happiness - 50.0) / 50.0;
+    if has_housing && has_food && happiness_factor > 0.0 {
+        let growth_chance_per_sec = happiness_factor * 0.1;
+        if rand::thread_rng().gen::<f32>() < growth_chance_per_sec {
+            population.count += 1;
+        }
+    }
+
+    game_state.total_inhabitants = population.count;
 }
 
 // CORRECTED: This function is refactored to avoid borrow checker errors.
