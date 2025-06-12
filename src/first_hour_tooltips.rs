@@ -198,19 +198,20 @@ fn check_tutorial_triggers_system(
     current_app: Res<CurrentApp>,
 ) {
     let steps = get_tutorial_steps();
-    if state.current_step >= steps.len() {
+    let index = state.current_step;
+    if index >= steps.len() {
         return;
     }
 
-    let step = &steps[state.current_step];
+    let step = &steps[index];
     if (step.trigger)(&game_state, &current_app) && state.active_tooltip.is_none() {
         let tooltip = spawn_tooltip(&mut commands, step);
         state.active_tooltip = Some(tooltip);
-        state.completed_steps[state.current_step] = true;
+        state.completed_steps[index] = true;
     }
     if state.active_tooltip.is_some() {
         // update timestamp maybe? ignoring for now
-    } else if state.completed_steps[state.current_step] {
+    } else if state.completed_steps[index] {
         state.current_step += 1;
     }
 }
