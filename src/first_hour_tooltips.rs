@@ -1,7 +1,7 @@
 // Tooltip sequence for Nexus Core tutorial (Bevy ECS-style)
 use bevy::prelude::*;
 use crate::{
-    game_state::{self, GameState, ServiceType},
+    game_state::{GameState, ServiceType},
     CurrentApp, AppType,
 };
 
@@ -24,7 +24,7 @@ impl Default for TutorialState {
 }
 
 pub struct TooltipStep {
-    pub trigger: fn(&World) -> bool,
+    pub trigger: fn(&GameState, &CurrentApp) -> bool,
     pub title: &'static str,
     pub content: &'static str,
     pub required_action: Option<fn(&mut World)>,
@@ -34,84 +34,84 @@ pub struct TooltipStep {
 pub fn get_tutorial_steps() -> Vec<TooltipStep> {
     vec![
         TooltipStep {
-            trigger: |_world| true,
+            trigger: |_gs, _app| true,
             title: "Welcome to Nexus Core",
             content: "Welcome, Colony Director. Let’s begin by placing your Operations Hub.",
             required_action: None,
             ui_highlight: Some("build_menu.operations_hub"),
         },
         TooltipStep {
-            trigger: |world| has_entity_with_tag(world, "operations_hub"),
+            trigger: |gs, _app| has_entity_with_tag(gs, "operations_hub"),
             title: "Power Online",
             content: "Your Hub is now active and generating power. Time to gather materials.",
             required_action: None,
             ui_highlight: Some("build_menu.extractor"),
         },
         TooltipStep {
-            trigger: |world| entity_has_flag(world, "extractor", "needs_power"),
+            trigger: |gs, _app| entity_has_flag(gs, "extractor", "needs_power"),
             title: "Power Deficit",
             content: "Not enough power. Build a Power Relay to bring your Extractor online.",
             required_action: None,
             ui_highlight: Some("build_menu.power_relay"),
         },
         TooltipStep {
-            trigger: |world| entity_produces_resource(world, "extractor"),
+            trigger: |gs, _app| entity_produces_resource(gs, "extractor"),
             title: "Resources Flowing",
             content: "You are now producing Ferrocrete and Silica. Monitor your resource panel.",
             required_action: None,
             ui_highlight: Some("ui.resources_panel"),
         },
         TooltipStep {
-            trigger: |world| player_lacks_available_specialists(world),
+            trigger: |gs, _app| player_lacks_available_specialists(gs),
             title: "Need More Citizens",
             content: "You're out of workers. Build housing and food to grow your population.",
             required_action: None,
             ui_highlight: Some("build_menu.basic_dwelling"),
         },
         TooltipStep {
-            trigger: |world| has_entity_with_tag(world, "bio_dome"),
+            trigger: |gs, _app| has_entity_with_tag(gs, "bio_dome"),
             title: "Food Production Started",
             content: "Bio-Dome producing Nutrient Paste. Ensure surplus to enable growth.",
             required_action: None,
             ui_highlight: Some("ui.food_metrics"),
         },
         TooltipStep {
-            trigger: |world| population_increased(world),
+            trigger: |gs, _app| population_increased(gs),
             title: "Growth Begins",
             content: "Your population is increasing. Assign new Specialists to expand operations.",
             required_action: None,
             ui_highlight: Some("ui.specialists_available"),
         },
         TooltipStep {
-            trigger: |world| happiness_below_threshold(world, 70.0),
+            trigger: |gs, _app| happiness_below_threshold(gs, 70.0),
             title: "Civic Crisis",
             content: "Your citizens are uneasy. Build a Wellness Post and Security Station.",
             required_action: None,
             ui_highlight: Some("build_menu.services"),
         },
         TooltipStep {
-            trigger: |world| all_services_covered(world),
+            trigger: |gs, _app| all_services_covered(gs),
             title: "Civics Restored",
             content: "Healthcare and Security restored. Happiness and growth resume.",
             required_action: None,
             ui_highlight: Some("ui.happiness_chart"),
         },
         TooltipStep {
-            trigger: |world| has_entity_with_tag(world, "research_institute"),
+            trigger: |gs, _app| has_entity_with_tag(gs, "research_institute"),
             title: "Tech Unlocked",
             content: "Research Institute active. Begin unlocking Development Phase 2.",
             required_action: None,
             ui_highlight: Some("ui.tech_tree"),
         },
         TooltipStep {
-            trigger: |world| tech_tree_opened(world),
+            trigger: |_gs, app| tech_tree_opened(app),
             title: "Research Begins",
             content: "Select a research project to unlock new buildings and capabilities.",
             required_action: None,
             ui_highlight: Some("tech_tree.initial_node"),
         },
         TooltipStep {
-            trigger: |world| legacy_structure_unlocked(world),
+            trigger: |gs, _app| legacy_structure_unlocked(gs),
             title: "Legacy Awaits",
             content: "Your colony is thriving. Begin preparation for the Genesis Monument.",
             required_action: None,
@@ -121,8 +121,7 @@ pub fn get_tutorial_steps() -> Vec<TooltipStep> {
 }
 
 // Placeholder condition helpers
-fn has_entity_with_tag(world: &World, tag: &str) -> bool {
-    let gs = world.resource::<GameState>();
+fn has_entity_with_tag(gs: &GameState, tag: &str) -> bool {
     match tag {
         "operations_hub" => gs.administrative_spire.is_some(),
         "extractor" => !gs.extractors.is_empty(),
@@ -132,8 +131,7 @@ fn has_entity_with_tag(world: &World, tag: &str) -> bool {
     }
 }
 
-fn entity_has_flag(world: &World, entity: &str, flag: &str) -> bool {
-    let gs = world.resource::<GameState>();
+fn entity_has_flag(gs: &GameState, entity: &str, flag: &str) -> bool {
     if entity == "extractor" && flag == "needs_power" {
         !gs.extractors.is_empty()
             && (gs.total_generated_power - gs.total_consumed_power) < 0.0
@@ -142,8 +140,7 @@ fn entity_has_flag(world: &World, entity: &str, flag: &str) -> bool {
     }
 }
 
-fn entity_produces_resource(world: &World, entity: &str) -> bool {
-    let gs = world.resource::<GameState>();
+fn entity_produces_resource(gs: &GameState, entity: &str) -> bool {
     if entity == "extractor" {
         gs.extractors.iter().any(|e| e.is_staffed)
     } else {
@@ -151,35 +148,29 @@ fn entity_produces_resource(world: &World, entity: &str) -> bool {
     }
 }
 
-fn player_lacks_available_specialists(world: &World) -> bool {
-    let gs = world.resource::<GameState>();
+fn player_lacks_available_specialists(gs: &GameState) -> bool {
     gs.assigned_workforce >= gs.total_inhabitants
 }
 
-fn population_increased(world: &World) -> bool {
-    let gs = world.resource::<GameState>();
+fn population_increased(gs: &GameState) -> bool {
     gs.total_inhabitants > 5
 }
 
-fn happiness_below_threshold(world: &World, threshold: f32) -> bool {
-    let gs = world.resource::<GameState>();
+fn happiness_below_threshold(gs: &GameState, threshold: f32) -> bool {
     gs.colony_happiness < threshold
 }
 
-fn all_services_covered(world: &World) -> bool {
-    let gs = world.resource::<GameState>();
+fn all_services_covered(gs: &GameState) -> bool {
     [ServiceType::Wellness, ServiceType::Security]
         .iter()
         .all(|t| gs.service_buildings.iter().any(|b| b.service_type == *t))
 }
 
-fn tech_tree_opened(world: &World) -> bool {
-    let app = world.resource::<CurrentApp>();
+fn tech_tree_opened(app: &CurrentApp) -> bool {
     app.0 == AppType::Research
 }
 
-fn legacy_structure_unlocked(world: &World) -> bool {
-    let gs = world.resource::<GameState>();
+fn legacy_structure_unlocked(gs: &GameState) -> bool {
     gs.legacy_structure.is_some()
 }
 
@@ -200,14 +191,19 @@ impl Plugin for TutorialPlugin {
     }
 }
 
-fn check_tutorial_triggers_system(mut commands: Commands, mut state: ResMut<TutorialState>) {
+fn check_tutorial_triggers_system(
+    mut commands: Commands,
+    mut state: ResMut<TutorialState>,
+    game_state: Res<GameState>,
+    current_app: Res<CurrentApp>,
+) {
     let steps = get_tutorial_steps();
     if state.current_step >= steps.len() {
         return;
     }
 
     let step = &steps[state.current_step];
-    if (step.trigger)(&commands.world) && state.active_tooltip.is_none() {
+    if (step.trigger)(&game_state, &current_app) && state.active_tooltip.is_none() {
         let tooltip = spawn_tooltip(&mut commands, step);
         state.active_tooltip = Some(tooltip);
         state.completed_steps[state.current_step] = true;
@@ -297,7 +293,7 @@ fn tooltip_button_system(
     mut interaction_q: Query<(&Interaction, Entity), (Changed<Interaction>, With<TutorialOkButton>)>,
     mut state: ResMut<TutorialState>,
 ) {
-    for (interaction, entity) in &mut interaction_q {
+    for (interaction, _entity) in &mut interaction_q {
         if *interaction == Interaction::Pressed {
             if let Some(root) = state.active_tooltip.take() {
                 commands.entity(root).despawn_recursive();
