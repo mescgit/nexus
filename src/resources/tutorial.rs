@@ -5,6 +5,7 @@ use bevy::prelude::*;
 pub struct TutorialState {
     pub steps: Vec<TooltipStep>,
     pub current_step: usize,
+    pub highlighted: Option<Entity>,
 }
 
 impl Default for TutorialState {
@@ -12,6 +13,7 @@ impl Default for TutorialState {
         Self {
             steps: get_tutorial_steps(),
             current_step: 0,
+            highlighted: None,
         }
     }
 }
@@ -114,30 +116,73 @@ pub fn get_tutorial_steps() -> Vec<TooltipStep> {
 }
 
 // Placeholder condition helpers
-fn has_entity_with_tag(_world: &World, _tag: &str) -> bool {
-    false
+use crate::game_state::{GameState, ResourceType, ServiceType};
+use crate::ui::{AppType, CurrentApp, SelectedTech, UiTag};
+
+fn has_entity_with_tag(world: &World, tag: &str) -> bool {
+    world
+        .iter_entities()
+        .any(|e| e.get::<UiTag>().map_or(false, |t| t.0 == tag))
 }
-fn entity_has_flag(_world: &World, _entity: &str, _flag: &str) -> bool {
-    false
+
+fn entity_has_flag(world: &World, entity: &str, flag: &str) -> bool {
+    let gs = world.resource::<GameState>();
+    match (entity, flag) {
+        ("extractor", "needs_power") => {
+            !gs.extractors.is_empty()
+                && (gs.total_generated_power < gs.total_consumed_power)
+        }
+        _ => false,
+    }
 }
-fn entity_produces_resource(_world: &World, _entity: &str) -> bool {
-    false
+
+fn entity_produces_resource(world: &World, entity: &str) -> bool {
+    let gs = world.resource::<GameState>();
+    match entity {
+        "extractor" => gs
+            .current_resources
+            .get(&ResourceType::FerrocreteOre)
+            .copied()
+            .unwrap_or(0.0)
+            > 200.0,
+        _ => false,
+    }
 }
-fn player_lacks_available_specialists(_world: &World) -> bool {
-    false
+
+fn player_lacks_available_specialists(world: &World) -> bool {
+    let gs = world.resource::<GameState>();
+    gs.total_inhabitants <= gs.assigned_specialists_total
 }
-fn population_increased(_world: &World) -> bool {
-    false
+
+fn population_increased(world: &World) -> bool {
+    let gs = world.resource::<GameState>();
+    gs.total_inhabitants > 5
 }
-fn happiness_below_threshold(_world: &World, _threshold: f32) -> bool {
-    false
+
+fn happiness_below_threshold(world: &World, threshold: f32) -> bool {
+    world.resource::<GameState>().colony_happiness < threshold
 }
-fn all_services_covered(_world: &World) -> bool {
-    false
+
+fn all_services_covered(world: &World) -> bool {
+    let gs = world.resource::<GameState>();
+    let required = [ServiceType::Wellness, ServiceType::Security];
+    required
+        .iter()
+        .all(|t| gs.service_buildings.iter().any(|b| b.service_type == *t))
 }
-fn tech_tree_opened(_world: &World) -> bool {
-    false
+
+fn tech_tree_opened(world: &World) -> bool {
+    if let Some(app) = world.get_resource::<CurrentApp>() {
+        if app.0 == AppType::Research {
+            return true;
+        }
+    }
+    world
+        .get_resource::<SelectedTech>()
+        .map(|s| s.0.is_some())
+        .unwrap_or(false)
 }
-fn legacy_structure_unlocked(_world: &World) -> bool {
-    false
+
+fn legacy_structure_unlocked(world: &World) -> bool {
+    world.resource::<GameState>().legacy_structure.is_some()
 }
