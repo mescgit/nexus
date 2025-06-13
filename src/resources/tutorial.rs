@@ -1,6 +1,9 @@
 // Tooltip sequence for Nexus Core tutorial (Bevy ECS-style)
 use bevy::prelude::*;
 
+use crate::game_state::{GameState, ServiceCoverage, ServiceType};
+use crate::ui::{AppType, CurrentApp};
+
 #[derive(Resource)]
 pub struct TutorialState {
     pub steps: Vec<TooltipStep>,
@@ -114,30 +117,109 @@ pub fn get_tutorial_steps() -> Vec<TooltipStep> {
 }
 
 // Placeholder condition helpers
-fn has_entity_with_tag(_world: &World, _tag: &str) -> bool {
-    false
+fn has_entity_with_tag(world: &World, tag: &str) -> bool {
+    let gs = world.get_resource::<GameState>();
+    if let Some(state) = gs {
+        match tag {
+            "operations_hub" => state.administrative_spire.is_some(),
+            "extractor" => !state.extractors.is_empty(),
+            "bio_dome" => !state.bio_domes.is_empty(),
+            "research_institute" => !state.research_institutes.is_empty(),
+            _ => false,
+        }
+    } else {
+        false
+    }
 }
-fn entity_has_flag(_world: &World, _entity: &str, _flag: &str) -> bool {
-    false
+
+fn entity_has_flag(world: &World, entity: &str, flag: &str) -> bool {
+    let gs = world.get_resource::<GameState>();
+    if let Some(state) = gs {
+        if entity == "extractor" && flag == "needs_power" {
+            !state.extractors.is_empty()
+                && state.total_generated_power < state.total_consumed_power
+        } else {
+            false
+        }
+    } else {
+        false
+    }
 }
-fn entity_produces_resource(_world: &World, _entity: &str) -> bool {
-    false
+
+fn entity_produces_resource(world: &World, entity: &str) -> bool {
+    let gs = world.get_resource::<GameState>();
+    if let Some(state) = gs {
+        if entity == "extractor" {
+            !state.extractors.is_empty()
+                && state.total_generated_power >= state.total_consumed_power
+        } else {
+            false
+        }
+    } else {
+        false
+    }
 }
-fn player_lacks_available_specialists(_world: &World) -> bool {
-    false
+
+fn player_lacks_available_specialists(world: &World) -> bool {
+    let gs = world.get_resource::<GameState>();
+    if let Some(state) = gs {
+        state.assigned_workforce >= state.total_inhabitants
+    } else {
+        false
+    }
 }
-fn population_increased(_world: &World) -> bool {
-    false
+
+fn population_increased(world: &World) -> bool {
+    let gs = world.get_resource::<GameState>();
+    if let Some(state) = gs {
+        state.total_inhabitants > 5
+    } else {
+        false
+    }
 }
-fn happiness_below_threshold(_world: &World, _threshold: f32) -> bool {
-    false
+
+fn happiness_below_threshold(world: &World, threshold: f32) -> bool {
+    let gs = world.get_resource::<GameState>();
+    if let Some(state) = gs {
+        state.colony_happiness < threshold
+    } else {
+        false
+    }
 }
-fn all_services_covered(_world: &World) -> bool {
-    false
+
+fn all_services_covered(world: &World) -> bool {
+    let gs = world.get_resource::<ServiceCoverage>();
+    if let Some(coverage) = gs {
+        let wellness = coverage
+            .coverage
+            .get(&ServiceType::Wellness)
+            .copied()
+            .unwrap_or(0.0);
+        let security = coverage
+            .coverage
+            .get(&ServiceType::Security)
+            .copied()
+            .unwrap_or(0.0);
+        wellness >= 1.0 && security >= 1.0
+    } else {
+        false
+    }
 }
-fn tech_tree_opened(_world: &World) -> bool {
-    false
+
+fn tech_tree_opened(world: &World) -> bool {
+    let app = world.get_resource::<CurrentApp>();
+    if let Some(current) = app {
+        current.0 == AppType::Research
+    } else {
+        false
+    }
 }
-fn legacy_structure_unlocked(_world: &World) -> bool {
-    false
+
+fn legacy_structure_unlocked(world: &World) -> bool {
+    let gs = world.get_resource::<GameState>();
+    if let Some(state) = gs {
+        state.legacy_structure.is_some()
+    } else {
+        false
+    }
 }
