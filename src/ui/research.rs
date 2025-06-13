@@ -167,5 +167,3 @@ pub(super) fn initiate_research_button_system(
     }
 }
 
-// --- New Systems for Legacy Structure ---
-

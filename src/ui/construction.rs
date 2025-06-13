@@ -222,8 +222,6 @@ pub(super) fn update_construction_list_system(
                             }
 
                             for (tier_index, tier) in service_tiers.iter().enumerate() {
-                                // TODO: Replace with actual ConstructServiceButton(service_type, tier_index)
-                                // For now, create a generic button, actual component will be added later.
                                 let can_afford = game_state.credits >= tier.construction_credits_cost as f64;
                                 parent.spawn((
                                     ButtonBundle {
