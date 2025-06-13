@@ -5,6 +5,7 @@ use bevy::prelude::*;
 pub struct TutorialState {
     pub steps: Vec<TooltipStep>,
     pub current_step: usize,
+    pub highlighted: Option<Entity>,
 }
 
 impl Default for TutorialState {
@@ -12,6 +13,7 @@ impl Default for TutorialState {
         Self {
             steps: get_tutorial_steps(),
             current_step: 0,
+            highlighted: None,
         }
     }
 }
