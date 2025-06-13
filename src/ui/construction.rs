@@ -386,4 +386,3 @@ pub(super) fn update_construction_details_panel_system(
         }
     }
 }
-

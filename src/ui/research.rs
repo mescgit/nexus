@@ -214,4 +214,3 @@ pub(super) fn initiate_research_button_system(
         }
     }
 }
-
