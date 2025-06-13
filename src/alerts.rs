@@ -6,6 +6,7 @@ pub struct AlertState {
     power: bool,
     food: bool,
     unrest: bool,
+    cap: bool,
 }
 
 pub struct AlertPlugin;
@@ -43,5 +44,17 @@ fn alert_system(mut alert: ResMut<AlertState>, mut game_state: ResMut<GameState>
     } else if game_state.colony_happiness >= 30.0 && alert.unrest {
         game_state::add_notification(&mut game_state.notifications, "Civic order restored.".to_string(), now);
         alert.unrest = false;
+    }
+
+    let capacity = 1000.0 + game_state.storage_silos.len() as f32 * 500.0;
+    let nearing_cap = game_state
+        .current_resources
+        .values()
+        .any(|&v| v >= capacity * 0.9);
+    if nearing_cap && !alert.cap {
+        game_state::add_notification(&mut game_state.notifications, "Storage capacity nearly full.".to_string(), now);
+        alert.cap = true;
+    } else if !nearing_cap && alert.cap {
+        alert.cap = false;
     }
 }
