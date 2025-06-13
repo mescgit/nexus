@@ -457,7 +457,9 @@ pub(super) fn update_admin_spire_panel_system(
     panel_query: Query<Entity, With<AdminSpireInfoPanel>>,
     mut commands: Commands,
 ) {
-    if !game_state.is_changed() { return; }
+    if !game_state.is_changed() {
+        return;
+    }
 
     if let Ok(panel_entity) = panel_query.get_single() {
         commands.entity(panel_entity).despawn_descendants();
@@ -684,7 +686,12 @@ pub(super) fn update_legacy_structure_panel_system(
         commands.entity(panel_entity).with_children(|parent| {
             parent.spawn(TextBundle::from_section("Legacy Structure", TextStyle{font_size: 16.0, color: PRIMARY_TEXT_COLOR, ..default()}));
 
-            if let Some(structure) = &game_state.legacy_structure {
+            if game_state.current_development_phase < DevelopmentPhase::DP3 {
+                parent.spawn(TextBundle::from_section(
+                    "Available in Development Phase 3",
+                    TextStyle { color: LABEL_TEXT_COLOR, ..default() },
+                ));
+            } else if let Some(structure) = &game_state.legacy_structure {
                 let current_tier = &structure.available_tiers[structure.current_tier_index];
                 parent.spawn(TextBundle::from_section(format!("Tier: {}", current_tier.name), TextStyle{font_size: 14.0, color: LABEL_TEXT_COLOR, ..default()}));
                 parent.spawn(TextBundle::from_section(format!("Happiness: +{}", current_tier.happiness_bonus), TextStyle{font_size: 12.0, color: Color::LIME_GREEN, ..default()}));

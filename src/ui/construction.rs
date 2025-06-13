@@ -39,9 +39,21 @@ fn get_building_metadata() -> HashMap<GameBuildingType, BuildingMetadata> {
     meta.insert(GameBuildingType::PowerRelay, BuildingMetadata { name: "Power Relay", category: ConstructionCategory::Operations, required_tech: None, required_dp: None, workforce_required: 0 });
     meta.insert(GameBuildingType::StorageSilo, BuildingMetadata { name: "Storage Silo", category: ConstructionCategory::Operations, required_tech: Some(Tech::BasicConstructionProtocols), required_dp: None, workforce_required: 0 });
     meta.insert(GameBuildingType::ResearchInstitute, BuildingMetadata { name: "Research Institute", category: ConstructionCategory::Operations, required_tech: Some(Tech::BasicConstructionProtocols), required_dp: None, workforce_required: 15 });
-    meta.insert(GameBuildingType::Fabricator, BuildingMetadata { name: "Fabricator", category: ConstructionCategory::Operations, required_tech: Some(Tech::BasicConstructionProtocols), required_dp: None, workforce_required: 20 });
-    meta.insert(GameBuildingType::ProcessingPlant, BuildingMetadata { name: "Processing Plant", category: ConstructionCategory::Operations, required_tech: Some(Tech::BasicConstructionProtocols), required_dp: None, workforce_required: 20 });
+    meta.insert(GameBuildingType::Fabricator, BuildingMetadata { name: "Fabricator", category: ConstructionCategory::Operations, required_tech: Some(Tech::BasicConstructionProtocols), required_dp: Some(DevelopmentPhase::DP2), workforce_required: 20 });
+    meta.insert(GameBuildingType::ProcessingPlant, BuildingMetadata { name: "Processing Plant", category: ConstructionCategory::Operations, required_tech: Some(Tech::BasicConstructionProtocols), required_dp: Some(DevelopmentPhase::DP2), workforce_required: 20 });
     meta
+}
+
+fn tag_for_building(bt: GameBuildingType) -> &'static str {
+    match bt {
+        GameBuildingType::Extractor => "build_menu.extractor",
+        GameBuildingType::BioDome => "build_menu.bio_dome",
+        GameBuildingType::PowerRelay => "build_menu.power_relay",
+        GameBuildingType::StorageSilo => "build_menu.storage_silo",
+        GameBuildingType::ResearchInstitute => "build_menu.research_institute",
+        GameBuildingType::Fabricator => "build_menu.fabricator",
+        GameBuildingType::ProcessingPlant => "build_menu.processing_plant",
+    }
 }
 
 pub(super) fn build(viewport: &mut ChildBuilder, _assets: &Res<AssetServer>) {
@@ -52,8 +64,11 @@ pub(super) fn build(viewport: &mut ChildBuilder, _assets: &Res<AssetServer>) {
                     .with_children(|tabs|{
                         let categories = [ConstructionCategory::Operations, ConstructionCategory::Habitation, ConstructionCategory::Services, ConstructionCategory::Zones];
                         for category in categories {
-                            tabs.spawn((ButtonBundle {style: Style{padding: UiRect::all(Val::Px(8.0)), margin: UiRect::horizontal(Val::Px(5.0)), ..default()}, background_color: NORMAL_BUTTON.into(), ..default()}, ConstructionCategoryTab(category)))
-                            .with_children(|button| { button.spawn(TextBundle::from_section(format!("{:?}", category), TextStyle {font_size: 16.0, color: PRIMARY_TEXT_COLOR, ..default()})); });
+                            let mut e = tabs.spawn((ButtonBundle {style: Style{padding: UiRect::all(Val::Px(8.0)), margin: UiRect::horizontal(Val::Px(5.0)), ..default()}, background_color: NORMAL_BUTTON.into(), ..default()}, ConstructionCategoryTab(category)));
+                            if category == ConstructionCategory::Services {
+                                e.insert(UiTag("build_menu.services"));
+                            }
+                            e.with_children(|button| { button.spawn(TextBundle::from_section(format!("{:?}", category), TextStyle {font_size: 16.0, color: PRIMARY_TEXT_COLOR, ..default()})); });
                         }
                     });
                     con.spawn(NodeBundle { style: Style {flex_direction: FlexDirection::Row, flex_grow: 1.0, ..default()}, ..default()})
@@ -174,10 +189,12 @@ pub(super) fn update_construction_list_system(
                         }
 
                         for (building_type, meta) in items {
-                            parent.spawn((
+                            let mut btn = parent.spawn((
                                 ButtonBundle { style: Style { width: Val::Percent(100.0), padding: UiRect::all(Val::Px(8.0)), margin: UiRect::bottom(Val::Px(4.0)), ..default() }, background_color: NORMAL_BUTTON.into(), ..default()},
                                 ConstructionItemButton(*building_type)
-                            )).with_children(|p| {
+                            ));
+                            btn.insert(UiTag(tag_for_building(*building_type)));
+                            btn.with_children(|p| {
                                 p.spawn(TextBundle::from_section(meta.name, TextStyle { font_size: 16.0, color: PRIMARY_TEXT_COLOR, ..default() }));
                             });
                         }
@@ -186,14 +203,18 @@ pub(super) fn update_construction_list_system(
                         let habitation_tiers = game_state::get_habitation_tiers();
                         for (tier_index, tier) in habitation_tiers.iter().enumerate() {
                             let can_afford = game_state.credits >= tier.construction_credits_cost as f64;
-                            parent.spawn((
+                            let mut btn = parent.spawn((
                                 ButtonBundle {
                                     style: Style { width: Val::Percent(100.0), padding: UiRect::all(Val::Px(8.0)), margin: UiRect::bottom(Val::Px(4.0)), ..default() },
                                     background_color: if can_afford { NORMAL_BUTTON.into() } else { DISABLED_BUTTON.into() },
                                     ..default()
                                 },
                                 ConstructHabitationButton(tier_index)
-                            )).with_children(|p| {
+                            ));
+                            if tier_index == 0 {
+                                btn.insert(UiTag("build_menu.basic_dwelling"));
+                            }
+                            btn.with_children(|p| {
                                 p.spawn(TextBundle::from_section(
                                     format!("{} ({} Cr)", tier.name, tier.construction_credits_cost),
                                     TextStyle { font_size: 16.0, color: PRIMARY_TEXT_COLOR, ..default() }
@@ -365,4 +386,3 @@ pub(super) fn update_construction_details_panel_system(
         }
     }
 }
-

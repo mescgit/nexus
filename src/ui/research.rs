@@ -133,17 +133,65 @@ pub(super) fn update_research_details_panel_system(
     mut panel_query: Query<Entity, With<ResearchDetailsPanel>>,
     mut commands: Commands,
 ){
-    if !selected_tech.is_changed() { return; }
+    if !selected_tech.is_changed() && !game_state.is_changed() { return; }
 
-    if let Ok(panel) = panel_query.get_single_mut(){
+    if let Ok(panel) = panel_query.get_single_mut() {
         commands.entity(panel).despawn_descendants();
         if let Some(tech) = selected_tech.0 {
-            commands.entity(panel).with_children(|parent|{
-                parent.spawn(TextBundle::from_section(format!("{:?}", tech), TextStyle{font_size: 22.0, color: PRIMARY_TEXT_COLOR, ..default()}));
-                let cost = game_state.tech_costs.get(&tech).unwrap_or(&0);
-                parent.spawn(TextBundle::from_section(format!("Cost: {} Credits", cost), TextStyle{ color: LABEL_TEXT_COLOR, ..default()}));
-                parent.spawn((ButtonBundle{style: Style{position_type: PositionType::Absolute, bottom: Val::Px(10.0), right: Val::Px(10.0), padding: UiRect::all(Val::Px(10.0)), ..default()}, background_color: NORMAL_BUTTON.into(), ..default()}, InitiateResearchButton))
-                .with_children(|button| { button.spawn(TextBundle::from_section("RESEARCH", TextStyle{color: PRIMARY_TEXT_COLOR, ..default()})); });
+            let cost = *game_state.tech_costs.get(&tech).unwrap_or(&0);
+            let (progress, active) = game_state.research_progress.as_ref().map(|(t,p)| (*p as u32, Some(*t))).unwrap_or((0,None));
+            commands.entity(panel).with_children(|parent| {
+                parent.spawn(TextBundle::from_section(
+                    format!("{:?}", tech),
+                    TextStyle { font_size: 22.0, color: PRIMARY_TEXT_COLOR, ..default() },
+                ));
+                parent.spawn(TextBundle::from_section(
+                    format!("Cost: {} Credits", cost),
+                    TextStyle { color: LABEL_TEXT_COLOR, ..default() },
+                ));
+
+                if let Some(active_tech) = active {
+                    if active_tech == tech {
+                        parent.spawn(TextBundle::from_section(
+                            format!("Progress: {}/{}", progress, cost),
+                            TextStyle { color: LABEL_TEXT_COLOR, ..default() },
+                        ));
+                    } else {
+                        parent.spawn(TextBundle::from_section(
+                            "Another project is in progress",
+                            TextStyle { color: LABEL_TEXT_COLOR, ..default() },
+                        ));
+                    }
+                } else if game_state.unlocked_techs.contains(&tech) {
+                    parent.spawn(TextBundle::from_section(
+                        "Completed",
+                        TextStyle { color: Color::GREEN, ..default() },
+                    ));
+                }
+
+            let can_start = game_state.research_progress.is_none() && !game_state.unlocked_techs.contains(&tech) && game_state.credits >= cost as f64;
+
+            parent
+                .spawn((
+                    ButtonBundle {
+                        style: Style {
+                            position_type: PositionType::Absolute,
+                            bottom: Val::Px(10.0),
+                            right: Val::Px(10.0),
+                            padding: UiRect::all(Val::Px(10.0)),
+                            ..default()
+                        },
+                        background_color: if can_start { NORMAL_BUTTON.into() } else { DISABLED_BUTTON.into() },
+                        ..default()
+                    },
+                    InitiateResearchButton,
+                ))
+                .with_children(|button| {
+                    button.spawn(TextBundle::from_section(
+                        "RESEARCH",
+                        TextStyle { color: PRIMARY_TEXT_COLOR, ..default() },
+                    ));
+                });
             });
         }
     }
@@ -166,4 +214,3 @@ pub(super) fn initiate_research_button_system(
         }
     }
 }
-
