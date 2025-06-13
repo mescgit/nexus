@@ -59,4 +59,4 @@ pub(super) fn update_colony_status_panel_system(
         text.sections[0].style.color = color;
     }
 }
-
+  

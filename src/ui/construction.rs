@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use crate::game_state::{self, add_bio_dome, add_extractor, add_power_relay, add_research_institute, add_storage_silo, GameState, ServiceType, ZoneType, BuildingType as GameBuildingType, DevelopmentPhase};
 use super::*;
-
+// 
 #[derive(Component)]
 pub(super) struct ConstructionPanel;
 #[derive(Component)]
