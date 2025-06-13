@@ -31,12 +31,12 @@ pub fn get_tutorial_steps() -> Vec<TooltipStep> {
         TooltipStep {
             trigger: |_world| true,
             title: "Welcome to Nexus Core",
-            content: "Welcome, Colony Director. Let’s begin by placing your Operations Hub.",
+            content: "Welcome, Colony Director. Let’s begin by constructing your Command Post.",
             required_action: None,
-            ui_highlight: Some("build_menu.operations_hub"),
+            ui_highlight: Some("dashboard.construct_spire"),
         },
         TooltipStep {
-            trigger: |world| has_entity_with_tag(world, "operations_hub"),
+            trigger: |world| administrative_spire_constructed(world),
             title: "Power Online",
             content: "Your Hub is now active and generating power. Time to gather materials.",
             required_action: None,
@@ -64,7 +64,7 @@ pub fn get_tutorial_steps() -> Vec<TooltipStep> {
             ui_highlight: Some("build_menu.basic_dwelling"),
         },
         TooltipStep {
-            trigger: |world| has_entity_with_tag(world, "bio_dome"),
+            trigger: |world| bio_dome_constructed(world),
             title: "Food Production Started",
             content: "Bio-Dome producing Nutrient Paste. Ensure surplus to enable growth.",
             required_action: None,
@@ -92,7 +92,7 @@ pub fn get_tutorial_steps() -> Vec<TooltipStep> {
             ui_highlight: Some("ui.happiness_chart"),
         },
         TooltipStep {
-            trigger: |world| has_entity_with_tag(world, "research_institute"),
+            trigger: |world| research_institute_constructed(world),
             title: "Tech Unlocked",
             content: "Research Institute active. Begin unlocking Development Phase 2.",
             required_action: None,
@@ -185,4 +185,16 @@ fn tech_tree_opened(world: &World) -> bool {
 
 fn legacy_structure_unlocked(world: &World) -> bool {
     world.resource::<GameState>().legacy_structure.is_some()
+}
+
+fn administrative_spire_constructed(world: &World) -> bool {
+    world.resource::<GameState>().administrative_spire.is_some()
+}
+
+fn bio_dome_constructed(world: &World) -> bool {
+    !world.resource::<GameState>().bio_domes.is_empty()
+}
+
+fn research_institute_constructed(world: &World) -> bool {
+    !world.resource::<GameState>().research_institutes.is_empty()
 }
