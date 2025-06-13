@@ -3,8 +3,17 @@ use bevy::prelude::*;
 
 #[derive(Resource)]
 pub struct TutorialState {
+    pub steps: Vec<TooltipStep>,
     pub current_step: usize,
-    pub completed_steps: Vec<bool>,
+}
+
+impl Default for TutorialState {
+    fn default() -> Self {
+        Self {
+            steps: get_tutorial_steps(),
+            current_step: 0,
+        }
+    }
 }
 
 pub struct TooltipStep {
@@ -105,12 +114,87 @@ pub fn get_tutorial_steps() -> Vec<TooltipStep> {
 }
 
 // Placeholder condition helpers
-fn has_entity_with_tag(_world: &World, _tag: &str) -> bool { false }
-fn entity_has_flag(_world: &World, _entity: &str, _flag: &str) -> bool { false }
-fn entity_produces_resource(_world: &World, _entity: &str) -> bool { false }
-fn player_lacks_available_specialists(_world: &World) -> bool { false }
-fn population_increased(_world: &World) -> bool { false }
-fn happiness_below_threshold(_world: &World, _threshold: f32) -> bool { false }
-fn all_services_covered(_world: &World) -> bool { false }
-fn tech_tree_opened(_world: &World) -> bool { false }
-fn legacy_structure_unlocked(_world: &World) -> bool { false }
+use crate::game_state::{GameState, ResourceType, ServiceType};
+
+fn has_entity_with_tag(world: &World, tag: &str) -> bool {
+    let state = world.resource::<GameState>();
+    match tag {
+        // Treat the Operations Hub as the Administrative Spire in this prototype
+        "operations_hub" => state.administrative_spire.is_some(),
+        "extractor" => !state.extractors.is_empty(),
+        "bio_dome" => !state.bio_domes.is_empty(),
+        "power_relay" => !state.power_relays.is_empty(),
+        "storage_silo" => !state.storage_silos.is_empty(),
+        "research_institute" => !state.research_institutes.is_empty(),
+        _ => false,
+    }
+}
+
+fn entity_has_flag(world: &World, entity: &str, flag: &str) -> bool {
+    let state = world.resource::<GameState>();
+    match (entity, flag) {
+        ("extractor", "needs_power") => {
+            !state.extractors.is_empty()
+                && state.total_generated_power < state.total_consumed_power
+        }
+        _ => false,
+    }
+}
+
+fn entity_produces_resource(world: &World, entity: &str) -> bool {
+    let state = world.resource::<GameState>();
+    match entity {
+        "extractor" => {
+            if state.extractors.is_empty() {
+                return false;
+            }
+            if let Some(amount) = state.current_resources.get(&ResourceType::FerrocreteOre) {
+                // Initial state grants 200 units; any increase implies production
+                *amount > 200.0
+            } else {
+                false
+            }
+        }
+        _ => false,
+    }
+}
+
+fn player_lacks_available_specialists(world: &World) -> bool {
+    let state = world.resource::<GameState>();
+    state.assigned_specialists_total >= state.total_specialist_slots && state.total_specialist_slots > 0
+}
+
+fn population_increased(world: &World) -> bool {
+    let state = world.resource::<GameState>();
+    state.total_inhabitants > 5
+}
+
+fn happiness_below_threshold(world: &World, threshold: f32) -> bool {
+    let state = world.resource::<GameState>();
+    state.colony_happiness < threshold
+}
+
+fn all_services_covered(world: &World) -> bool {
+    let coverage = world.resource::<crate::game_state::ServiceCoverage>();
+    let service_types = [
+        ServiceType::Wellness,
+        ServiceType::Security,
+        ServiceType::Education,
+        ServiceType::Recreation,
+        ServiceType::Spiritual,
+    ];
+
+    service_types
+        .iter()
+        .all(|t| coverage.coverage.get(t).copied().unwrap_or(0.0) >= 1.0)
+}
+
+fn tech_tree_opened(world: &World) -> bool {
+    let state = world.resource::<GameState>();
+    state.research_progress.is_some()
+}
+
+fn legacy_structure_unlocked(world: &World) -> bool {
+    let state = world.resource::<GameState>();
+    state.legacy_structure.is_some()
+}
