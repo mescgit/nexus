@@ -500,13 +500,14 @@ pub(super) fn update_admin_spire_panel_system(
                     AdminSpireTierText
                 ));
                 let can_afford = game_state.credits >= 1000.0; // Hardcoded from game_state
-                 parent.spawn((
+                parent.spawn((
                     ButtonBundle {
                         style: Style { width: Val::Percent(100.0), padding: UiRect::all(Val::Px(5.0)), margin: UiRect::top(Val::Px(10.0)), ..default()},
                         background_color: if can_afford { NORMAL_BUTTON.into() } else { DISABLED_BUTTON.into() },
                         ..default()
                     },
-                    ConstructSpireButton
+                    ConstructSpireButton,
+                    UiTag("dashboard.construct_spire"),
                 )).with_children(|btn| {
                     btn.spawn(TextBundle::from_section(
                         "Construct (1000 Cr)",

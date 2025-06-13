@@ -3,6 +3,7 @@ mod game_state;
 mod resources;
 mod systems;
 mod ui;
+mod alerts;
 mod app;
 
 fn main() {
