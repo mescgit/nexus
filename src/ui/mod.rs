@@ -47,6 +47,9 @@ struct CoreResourceText(ResourceType);
 #[derive(Component)]
 struct ColonyHappinessText;
 
+#[derive(Component)]
+pub struct UiTag(pub &'static str);
+
 #[derive(Resource, Default, Debug)]
 pub struct SelectedBuilding(pub Option<GameBuildingType>);
 
@@ -140,7 +143,7 @@ fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
         ..default()
     })
     .with_children(|parent| {
-        parent.spawn(NodeBundle {
+        parent.spawn((NodeBundle {
             style: Style {
                 width: Val::Percent(100.0),
                 padding: UiRect::all(Val::Px(8.0)),
@@ -152,7 +155,7 @@ fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
             background_color: PANEL_BACKGROUND.into(),
             border_color: BORDER_COLOR.into(),
             ..default()
-        }).with_children(|ticker| {
+        }, UiTag("ui.resources_panel"))).with_children(|ticker| {
             ticker.spawn((TextBundle::from_section("Cr.", TextStyle { font_size: 18.0, color: Color::GOLD, ..default() }).with_style(Style { margin: UiRect::horizontal(Val::Px(10.0)), ..default() }), CreditsText));
             ticker.spawn((TextBundle::from_section("⚡", TextStyle { font_size: 18.0, color: Color::CYAN, ..default() }).with_style(Style { margin: UiRect::horizontal(Val::Px(10.0)), ..default() }), PowerText));
             ticker.spawn((TextBundle::from_section("👤", TextStyle { font_size: 18.0, color: Color::WHITE, ..default() }).with_style(Style { margin: UiRect::horizontal(Val::Px(10.0)), ..default() }), PopulationText));
