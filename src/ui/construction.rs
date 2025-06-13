@@ -30,7 +30,8 @@ pub(super) struct BuildingMetadata {
     pub workforce_required: u32,
 }
 
-fn get_building_metadata() -> std::collections::HashMap<GameBuildingType, BuildingMetadata> {
+use std::collections::HashMap;
+
 fn get_building_metadata() -> HashMap<GameBuildingType, BuildingMetadata> {
     let mut meta = HashMap::new();
     meta.insert(GameBuildingType::Extractor, BuildingMetadata { name: "Extractor", category: ConstructionCategory::Operations, required_tech: None, required_dp: None, workforce_required: 5 });
@@ -62,7 +63,7 @@ pub(super) fn build(viewport: &mut ChildBuilder, _assets: &Res<AssetServer>) {
                     });
                 });
 }
-fn construction_interaction_system(
+pub(super) fn construction_interaction_system(
     interaction_query: Query<&Interaction, (Changed<Interaction>, With<ConfirmBuildButton>)>,
     selected_building: Res<SelectedBuilding>,
     mut game_state: ResMut<GameState>,
@@ -96,7 +97,7 @@ fn construction_interaction_system(
      }
 }
 
-fn zone_construction_system(
+pub(super) fn zone_construction_system(
     mut interaction_query: Query<(&Interaction, &ConstructZoneButton), (Changed<Interaction>, With<Button>)>,
     mut game_state: ResMut<GameState>,
 ) {
@@ -110,7 +111,7 @@ fn zone_construction_system(
     }
 }
 
-fn service_construction_system(
+pub(super) fn service_construction_system(
     mut interaction_query: Query<(&Interaction, &ConstructServiceButton), (Changed<Interaction>, With<Button>)>,
     mut game_state: ResMut<GameState>,
 ) {
@@ -127,7 +128,7 @@ fn service_construction_system(
 }
 
 
-fn construction_category_tab_system(
+pub(super) fn construction_category_tab_system(
     mut current_category: ResMut<CurrentConstructionCategory>,
     mut button_query: Query<(&Interaction, &ConstructionCategoryTab, &mut BackgroundColor), With<Button>>,
 ) {
@@ -142,7 +143,7 @@ fn construction_category_tab_system(
     }
 }
 
-fn update_construction_list_system(
+pub(super) fn update_construction_list_system(
     current_app: Res<CurrentApp>,
     current_category: Res<CurrentConstructionCategory>,
     game_state: Res<GameState>,
@@ -288,7 +289,7 @@ fn update_construction_list_system(
 }
 
 
-fn habitation_construction_system(
+pub(super) fn habitation_construction_system(
     mut interaction_query: Query<(&Interaction, &ConstructHabitationButton)>,
     mut game_state: ResMut<GameState>,
 ) {
@@ -301,7 +302,7 @@ fn habitation_construction_system(
 }
 
 
-fn construction_item_interaction_system(
+pub(super) fn construction_item_interaction_system(
     mut selected_building_res: ResMut<SelectedBuilding>,
     game_state: Res<GameState>,
     mut button_query: Query<(&Interaction, &ConstructionItemButton, &mut BackgroundColor), With<Button>>,
@@ -328,7 +329,7 @@ fn construction_item_interaction_system(
     }
 }
 
-fn update_construction_details_panel_system(
+pub(super) fn update_construction_details_panel_system(
     selected_building: Res<SelectedBuilding>,
     game_state: Res<GameState>,
     mut details_panel_query: Query<Entity, With<ConstructionItemDetailsPanel>>,

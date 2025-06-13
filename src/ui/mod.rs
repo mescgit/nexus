@@ -15,6 +15,10 @@ mod dashboard;
 mod construction;
 mod colony_status;
 mod research;
+use dashboard::{DashboardPanel, ManagedStructuresPanel, ZoneListButton, ZoneDetailsPanel, UpgradeZoneButton, RemoveZoneButton, AssignSpecialistToZoneButton, UnassignSpecialistFromZoneButton};
+use construction::ConstructionPanel;
+use colony_status::ColonyStatusPanel;
+use research::ResearchPanel;
 
 // --- Color & Style Constants ---
 const PANEL_BACKGROUND: Color = Color::rgba(0.02, 0.02, 0.05, 0.85);
@@ -26,6 +30,22 @@ const ACTIVE_BUTTON: Color = Color::rgba(0.1, 0.4, 0.8, 1.0);
 const PRIMARY_TEXT_COLOR: Color = Color::rgba(0.9, 0.9, 0.9, 0.9);
 const LABEL_TEXT_COLOR: Color = Color::rgba(0.7, 0.7, 0.8, 0.9);
 const DISABLED_BUTTON: Color = Color::rgba(0.3, 0.1, 0.1, 0.8);
+
+// --- UI Marker Components ---
+#[derive(Component)]
+struct AppDrawerButton(AppType);
+#[derive(Component)]
+struct CreditsText;
+#[derive(Component)]
+struct PowerText;
+#[derive(Component)]
+struct PopulationText;
+#[derive(Component)]
+struct WorkforceText;
+#[derive(Component)]
+struct CoreResourceText(ResourceType);
+#[derive(Component)]
+struct ColonyHappinessText;
 
 #[derive(Resource, Default, Debug)]
 pub struct SelectedBuilding(pub Option<GameBuildingType>);
@@ -218,6 +238,7 @@ fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                 construction::build(viewport, &asset_server);
                 colony_status::build(viewport, &asset_server);
                 research::build(viewport, &asset_server);
+            });
         });
     });
 }

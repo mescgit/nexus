@@ -1,5 +1,15 @@
 use bevy::prelude::*;
 use crate::game_state::GameState;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DiagnosticType {
+    NutrientPaste,
+    Housing,
+    Healthcare,
+    Security,
+    Recreation,
+    Education,
+}
 use super::*;
 
 #[derive(Component)]
@@ -23,7 +33,7 @@ pub(super) fn build(viewport: &mut ChildBuilder, _assets: &Res<AssetServer>) {
                     }
                 });
 }
-fn update_colony_status_panel_system(
+pub(super) fn update_colony_status_panel_system(
     game_state: Res<GameState>,
     mut query: Query<(&mut Text, &DiagnosticItem)>,
 ) {

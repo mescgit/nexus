@@ -14,22 +14,82 @@ pub(super) struct ResearchDetailsPanel;
 pub(super) struct InitiateResearchButton;
 
 pub(super) fn build(viewport: &mut ChildBuilder, _assets: &Res<AssetServer>) {
+    viewport
+        .spawn((
+            NodeBundle {
+                style: Style {
+                    display: Display::None,
+                    width: Val::Percent(100.0),
+                    height: Val::Percent(100.0),
+                    flex_direction: FlexDirection::Column,
+                    ..default()
+                },
+                ..default()
+            },
+            ResearchPanel,
+        ))
+        .with_children(|research| {
+            research.spawn(
+                TextBundle::from_section(
+                    "RESEARCH & DEVELOPMENT",
+                    TextStyle {
+                        font_size: 28.0,
+                        color: BORDER_COLOR,
+                        ..default()
+                    },
+                )
+                .with_style(Style {
+                    margin: UiRect::bottom(Val::Px(10.0)),
+                    ..default()
+                }),
+            );
 
-                viewport.spawn((NodeBundle { style: Style {display: Display::None, width: Val::Percent(100.0), height:Val::Percent(100.0), flex_direction: FlexDirection::Column, ..default()}, ..default() }, ResearchPanel))
-                 .with_children(|research| {
-                    research.spawn(TextBundle::from_section("RESEARCH & DEVELOPMENT", TextStyle{font_size: 28.0, color: BORDER_COLOR, ..default()}).with_style(Style{margin: UiRect::bottom(Val::Px(10.0)), ..default()}));
-                     research.spawn(NodeBundle { style: Style {flex_direction: FlexDirection::Row, flex_grow: 1.0, ..default()}, ..default()})
-                    .with_children(|main| {
-                        main.spawn((NodeBundle{style: Style{width:Val::Percent(40.0), height: Val::Percent(100.0), border: UiRect::all(Val::Px(1.0)), padding: UiRect::all(Val::Px(5.0)), flex_direction: FlexDirection::Column, ..default()}, border_color: BORDER_COLOR.into(), ..default()}, AvailableResearchListPanel));
-                        main.spawn((NodeBundle{style: Style{flex_grow: 1.0, height: Val::Percent(100.0), border: UiRect::all(Val::Px(1.0)), padding: UiRect::all(Val::Px(10.0)), margin: UiRect::left(Val::Px(10.0)), flex_direction:FlexDirection::Column, ..default()}, border_color: BORDER_COLOR.into(), ..default()}, ResearchDetailsPanel));
-                    });
+            research
+                .spawn(NodeBundle {
+                    style: Style {
+                        flex_direction: FlexDirection::Row,
+                        flex_grow: 1.0,
+                        ..default()
+                    },
+                    ..default()
+                })
+                .with_children(|main| {
+                    main.spawn((
+                        NodeBundle {
+                            style: Style {
+                                width: Val::Percent(40.0),
+                                height: Val::Percent(100.0),
+                                border: UiRect::all(Val::Px(1.0)),
+                                padding: UiRect::all(Val::Px(5.0)),
+                                flex_direction: FlexDirection::Column,
+                                ..default()
+                            },
+                            border_color: BORDER_COLOR.into(),
+                            ..default()
+                        },
+                        AvailableResearchListPanel,
+                    ));
+
+                    main.spawn((
+                        NodeBundle {
+                            style: Style {
+                                flex_grow: 1.0,
+                                height: Val::Percent(100.0),
+                                border: UiRect::all(Val::Px(1.0)),
+                                padding: UiRect::all(Val::Px(10.0)),
+                                margin: UiRect::left(Val::Px(10.0)),
+                                flex_direction: FlexDirection::Column,
+                                ..default()
+                            },
+                            border_color: BORDER_COLOR.into(),
+                            ..default()
+                        },
+                        ResearchDetailsPanel,
+                    ));
                 });
-            });
         });
-    });
 }
-}
-fn update_research_panel_system(
+pub(super) fn update_research_panel_system(
     current_app: Res<CurrentApp>,
     game_state: Res<GameState>,
     mut list_panel_query: Query<Entity, With<AvailableResearchListPanel>>,
@@ -52,7 +112,7 @@ fn update_research_panel_system(
     }
 }
 
-fn research_item_button_system(
+pub(super) fn research_item_button_system(
     mut selected_tech: ResMut<SelectedTech>,
     mut query: Query<(&Interaction, &ResearchItemButton, &mut BackgroundColor)>
 ){
@@ -67,7 +127,7 @@ fn research_item_button_system(
      }
 }
 
-fn update_research_details_panel_system(
+pub(super) fn update_research_details_panel_system(
     selected_tech: Res<SelectedTech>,
     game_state: Res<GameState>,
     mut panel_query: Query<Entity, With<ResearchDetailsPanel>>,
@@ -89,7 +149,7 @@ fn update_research_details_panel_system(
     }
 }
 
-fn initiate_research_button_system(
+pub(super) fn initiate_research_button_system(
     interaction_q: Query<&Interaction, (Changed<Interaction>, With<InitiateResearchButton>)>,
     selected_tech: Res<SelectedTech>,
     mut game_state: ResMut<GameState>
