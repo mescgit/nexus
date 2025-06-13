@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 
 use crate::game_state::GameLogicPlugin;
+use crate::systems::TutorialPlugin;
 use crate::ui::UiPlugin;
 
 pub fn build_app() -> App {
@@ -15,6 +16,7 @@ pub fn build_app() -> App {
                 ..default()
             }),
             GameLogicPlugin,
+            TutorialPlugin,
             UiPlugin,
         ))
         .insert_resource(Time::<Fixed>::from_seconds(1.0));
