@@ -394,12 +394,25 @@ pub fn assign_specialists_to_processing_plant(game_state: &mut GameState, plant_
             if available_general_inhabitants < num_to_assign {
                 println!("Not enough unassigned inhabitants for Processing Plant {}.", plant_id); return;
             }
+            if game_state.assigned_specialists_total + num_to_assign
+                > game_state.total_specialist_slots
+            {
+                println!("Not enough specialist accommodation available.");
+                return;
+            }
             if plant.assigned_specialists + num_to_assign > tier.specialist_requirement {
-                println!("Cannot assign more specialists than required for Processing Plant {}. Max: {}", plant_id, tier.specialist_requirement); return;
+                println!(
+                    "Cannot assign more specialists than required for Processing Plant {}. Max: {}",
+                    plant_id, tier.specialist_requirement
+                );
+                return;
             }
             plant.assigned_specialists += num_to_assign;
             game_state.assigned_specialists_total += num_to_assign;
-            println!("Assigned {} specialists to Processing Plant {}.", num_to_assign, plant_id);
+            println!(
+                "Assigned {} specialists to Processing Plant {}.",
+                num_to_assign, plant_id
+            );
         }
     } else {
         println!("Processing Plant {} not found.", plant_id);
@@ -862,8 +875,18 @@ pub fn assign_specialists_to_fabricator(game_state: &mut GameState, fab_id: &str
             if available_general_inhabitants < num_to_assign {
                 println!("Not enough unassigned inhabitants for Fabricator {}.", fab_id); return;
             }
+            if game_state.assigned_specialists_total + num_to_assign
+                > game_state.total_specialist_slots
+            {
+                println!("Not enough specialist accommodation available.");
+                return;
+            }
             if fab.assigned_specialists + num_to_assign > tier.specialist_requirement {
-                println!("Cannot assign more specialists than required for Fabricator {}. Max: {}", fab_id, tier.specialist_requirement); return;
+                println!(
+                    "Cannot assign more specialists than required for Fabricator {}. Max: {}",
+                    fab_id, tier.specialist_requirement
+                );
+                return;
             }
             fab.assigned_specialists += num_to_assign;
             game_state.assigned_specialists_total += num_to_assign;
@@ -1064,6 +1087,12 @@ pub fn assign_specialists_to_structure(game_state: &mut GameState, structure_id:
                 println!("Not enough unassigned inhabitants to become specialists.");
                 return;
             }
+            if game_state.assigned_specialists_total + num_to_assign
+                > game_state.total_specialist_slots
+            {
+                println!("Not enough specialist accommodation available.");
+                return;
+            }
             if structure.assigned_specialists + num_to_assign > tier.specialist_slots {
                 println!("Not enough specialist slots in this structure.");
                 return;
@@ -1190,11 +1219,23 @@ pub fn assign_specialists_to_service_building(game_state: &mut GameState, buildi
         if let Some(tier) = building.available_tiers.get(building.current_tier_index) {
             let available_general_inhabitants = game_state.total_inhabitants.saturating_sub(game_state.assigned_specialists_total);
             if available_general_inhabitants < num_to_assign {
-                println!("Not enough unassigned inhabitants to become specialists for service building {}.", building_id);
+                println!(
+                    "Not enough unassigned inhabitants to become specialists for service building {}.",
+                    building_id
+                );
+                return;
+            }
+            if game_state.assigned_specialists_total + num_to_assign
+                > game_state.total_specialist_slots
+            {
+                println!("Not enough specialist accommodation available.");
                 return;
             }
             if building.assigned_specialists + num_to_assign > tier.specialist_requirement {
-                println!("Cannot assign more specialists than required for service building {}. Max: {}", building_id, tier.specialist_requirement);
+                println!(
+                    "Cannot assign more specialists than required for service building {}. Max: {}",
+                    building_id, tier.specialist_requirement
+                );
                 return;
             }
             building.assigned_specialists += num_to_assign;
@@ -1316,6 +1357,16 @@ pub fn assign_specialists_to_zone(game_state: &mut GameState, zone_id: &str, num
             let available_general_inhabitants = game_state.total_inhabitants.saturating_sub(game_state.assigned_specialists_total);
             if available_general_inhabitants < num_to_assign {
                 add_notification(&mut game_state.notifications, format!("Not enough unassigned inhabitants to become specialists for zone {}.", zone_id), 0.0);
+                return;
+            }
+            if game_state.assigned_specialists_total + num_to_assign
+                > game_state.total_specialist_slots
+            {
+                add_notification(
+                    &mut game_state.notifications,
+                    "Not enough specialist accommodation available.".to_string(),
+                    0.0,
+                );
                 return;
             }
             if zone.assigned_specialists + num_to_assign > tier.specialist_jobs_provided {
