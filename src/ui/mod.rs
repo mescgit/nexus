@@ -84,6 +84,8 @@ pub struct SelectedTech(pub Option<Tech>);
 
 #[derive(Resource, Default)]
 pub struct SelectedZone(pub Option<String>);
+#[derive(Resource, Default)]
+pub struct SelectedServiceBuilding(pub Option<String>);
 
 // --- Building Metadata ---
 
@@ -97,6 +99,7 @@ impl Plugin for UiPlugin {
             .init_resource::<SelectedBuilding>()
             .init_resource::<SelectedTech>()
             .init_resource::<SelectedZone>()
+            .init_resource::<SelectedServiceBuilding>()
             .add_systems(Startup, setup_ui)
                 .add_systems(Update, (
                     app_drawer_button_system,
@@ -111,8 +114,17 @@ impl Plugin for UiPlugin {
                     dashboard::remove_zone_button_interaction_system,
                     dashboard::assign_specialist_to_zone_button_interaction_system,
                     dashboard::unassign_specialist_from_zone_button_interaction_system,
+                    dashboard::service_building_list_button_interaction_system,
+                    dashboard::upgrade_service_building_button_interaction_system,
+                    dashboard::remove_service_building_button_interaction_system,
+                ))
+                .add_systems(Update, (
+                    dashboard::assign_specialist_to_service_building_button_interaction_system,
+                    dashboard::unassign_specialist_from_service_building_button_interaction_system,
                     dashboard::admin_spire_button_interaction_system,
                     dashboard::legacy_structure_button_system,
+                ))
+                .add_systems(Update, (
                     dashboard::draw_graph_gizmos,
                     construction::construction_category_tab_system,
                     dashboard::save_load_button_system,

@@ -39,6 +39,18 @@ pub(super) struct AssignSpecialistToZoneButton(pub String);
 #[derive(Component)]
 pub(super) struct UnassignSpecialistFromZoneButton(pub String);
 #[derive(Component)]
+pub(super) struct ServiceBuildingListButton(pub String);
+#[derive(Component)]
+pub(super) struct ServiceBuildingDetailsPanel;
+#[derive(Component)]
+pub(super) struct UpgradeServiceBuildingButton(pub String);
+#[derive(Component)]
+pub(super) struct RemoveServiceBuildingButton(pub String);
+#[derive(Component)]
+pub(super) struct AssignSpecialistToServiceBuildingButton(pub String);
+#[derive(Component)]
+pub(super) struct UnassignSpecialistFromServiceBuildingButton(pub String);
+#[derive(Component)]
 pub(super) struct SaveGameButton;
 #[derive(Component)]
 pub(super) struct LoadGameButton;
@@ -47,6 +59,7 @@ pub(super) fn update_managed_structures_panel_system(
     current_app: Res<CurrentApp>,
     game_state: Res<GameState>,
     selected_zone: Res<SelectedZone>,
+    selected_service_building: Res<SelectedServiceBuilding>,
     panel_query: Query<Entity, With<ManagedStructuresPanel>>,
     mut commands: Commands,
 ) {
@@ -295,10 +308,208 @@ pub(super) fn update_managed_structures_panel_system(
                         }
                     }
                 }
+
+                // --- Service Buildings Section ---
+                parent.spawn(
+                    TextBundle::from_section(
+                        "Managed Service Buildings",
+                        TextStyle { font_size: 16.0, color: LABEL_TEXT_COLOR, ..default() },
+                    )
+                    .with_style(Style { margin: UiRect::vertical(Val::Px(10.0)), ..default() }),
+                );
+
+                if game_state.service_buildings.is_empty() {
+                    parent.spawn(TextBundle::from_section(
+                        "No service buildings.",
+                        TextStyle { font_size: 14.0, color: PRIMARY_TEXT_COLOR, ..default() },
+                    ));
+                } else {
+                    for building in game_state.service_buildings.iter() {
+                        if let Some(tier) = building.available_tiers.get(building.current_tier_index) {
+                            parent
+                                .spawn((
+                                    ButtonBundle {
+                                        style: Style {
+                                            width: Val::Percent(100.0),
+                                            padding: UiRect::all(Val::Px(5.0)),
+                                            margin: UiRect::bottom(Val::Px(2.0)),
+                                            justify_content: JustifyContent::Center,
+                                            ..default()
+                                        },
+                                        background_color: NORMAL_BUTTON.into(),
+                                        ..default()
+                                    },
+                                    ServiceBuildingListButton(building.id.clone()),
+                                ))
+                                .with_children(|button_parent| {
+                                    button_parent.spawn(TextBundle::from_section(
+                                        format!(
+                                            "{:?} - {} (Staff: {}/{})",
+                                            building.service_type,
+                                            tier.name,
+                                            building.assigned_specialists,
+                                            tier.specialist_requirement
+                                        ),
+                                        TextStyle { font_size: 14.0, color: PRIMARY_TEXT_COLOR, ..default() },
+                                    ));
+                                });
+                        }
+                    }
+                }
+
+                let mut service_details = parent.spawn((
+                    NodeBundle {
+                        style: Style {
+                            flex_direction: FlexDirection::Column,
+                            margin: UiRect::top(Val::Px(10.0)),
+                            padding: UiRect::all(Val::Px(5.0)),
+                            border: UiRect::all(Val::Px(1.0)),
+                            min_height: Val::Px(150.0),
+                            ..default()
+                        },
+                        border_color: Color::rgba(0.5, 0.5, 0.5, 0.5).into(),
+                        background_color: Color::rgba(0.1, 0.1, 0.1, 0.3).into(),
+                        ..default()
+                    },
+                    ServiceBuildingDetailsPanel,
+                ));
+
+                if let Some(selected_service_id) = &selected_service_building.0 {
+                    if let Some(building) = game_state.service_buildings.iter().find(|b| b.id == *selected_service_id) {
+                        if let Some(current_tier) = building.available_tiers.get(building.current_tier_index) {
+                            service_details.with_children(|details_parent| {
+                                details_parent.spawn(
+                                    TextBundle::from_section(
+                                        format!("Service Details: {:?} - {}", building.service_type, current_tier.name),
+                                        TextStyle { font_size: 15.0, color: PRIMARY_TEXT_COLOR, ..default() },
+                                    )
+                                    .with_style(Style { margin: UiRect::bottom(Val::Px(4.0)), ..default() }),
+                                );
+
+                                details_parent.spawn(
+                                    TextBundle::from_section(
+                                        format!("Staff: {}/{}", building.assigned_specialists, current_tier.specialist_requirement),
+                                        TextStyle { font_size: 14.0, color: LABEL_TEXT_COLOR, ..default() },
+                                    )
+                                    .with_style(Style { margin: UiRect::bottom(Val::Px(2.0)), ..default() }),
+                                );
+
+                                details_parent.spawn(
+                                    TextBundle::from_section(
+                                        format!("Upkeep: {} Cr/cycle", current_tier.upkeep_cost),
+                                        TextStyle { font_size: 14.0, color: LABEL_TEXT_COLOR, ..default() },
+                                    )
+                                    .with_style(Style { margin: UiRect::bottom(Val::Px(8.0)), ..default() }),
+                                );
+
+                                if building.current_tier_index < building.available_tiers.len() - 1 {
+                                    let next_tier = &building.available_tiers[building.current_tier_index + 1];
+                                    let can_afford = game_state.credits >= next_tier.construction_credits_cost as f64;
+                                    details_parent
+                                        .spawn((
+                                            ButtonBundle {
+                                                style: Style {
+                                                    width: Val::Percent(100.0),
+                                                    padding: UiRect::all(Val::Px(5.0)),
+                                                    margin: UiRect::bottom(Val::Px(4.0)),
+                                                    ..default()
+                                                },
+                                                background_color: if can_afford { NORMAL_BUTTON.into() } else { DISABLED_BUTTON.into() },
+                                                ..default()
+                                            },
+                                            UpgradeServiceBuildingButton(selected_service_id.clone()),
+                                        ))
+                                        .with_children(|btn| {
+                                            btn.spawn(TextBundle::from_section(
+                                                format!("Upgrade to {} ({} Cr)", next_tier.name, next_tier.construction_credits_cost),
+                                                TextStyle { font_size: 14.0, color: PRIMARY_TEXT_COLOR, ..default() },
+                                            ));
+                                        });
+                                } else {
+                                    details_parent.spawn(TextBundle::from_section(
+                                        "Max tier reached",
+                                        TextStyle { font_size: 14.0, color: Color::CYAN, ..default() },
+                                    ));
+                                }
+
+                                details_parent
+                                    .spawn((
+                                        ButtonBundle {
+                                            style: Style {
+                                                width: Val::Percent(100.0),
+                                                padding: UiRect::all(Val::Px(5.0)),
+                                                margin: UiRect::top(Val::Px(4.0)),
+                                                ..default()
+                                            },
+                                            background_color: NORMAL_BUTTON.into(),
+                                            ..default()
+                                        },
+                                        RemoveServiceBuildingButton(selected_service_id.clone()),
+                                    ))
+                                    .with_children(|btn| {
+                                        btn.spawn(TextBundle::from_section(
+                                            "Remove Building",
+                                            TextStyle { font_size: 14.0, color: Color::TOMATO, ..default() },
+                                        ));
+                                    });
+
+                                details_parent.spawn(NodeBundle { style: Style { height: Val::Px(10.0), ..default() }, ..default() });
+
+                                let can_assign_more = building.assigned_specialists < current_tier.specialist_requirement;
+                                let available_general = game_state.total_inhabitants.saturating_sub(game_state.assigned_specialists_total);
+                                let can_assign = can_assign_more && available_general > 0;
+
+                                details_parent
+                                    .spawn((
+                                        ButtonBundle {
+                                            style: Style {
+                                                width: Val::Percent(100.0),
+                                                padding: UiRect::all(Val::Px(5.0)),
+                                                margin: UiRect::bottom(Val::Px(4.0)),
+                                                ..default()
+                                            },
+                                            background_color: if can_assign { NORMAL_BUTTON.into() } else { DISABLED_BUTTON.into() },
+                                            ..default()
+                                        },
+                                        AssignSpecialistToServiceBuildingButton(selected_service_id.clone()),
+                                    ))
+                                    .with_children(|btn| {
+                                        btn.spawn(TextBundle::from_section(
+                                            "Assign Specialist (+1)",
+                                            TextStyle { font_size: 14.0, color: PRIMARY_TEXT_COLOR, ..default() },
+                                        ));
+                                    });
+
+                                let can_unassign = building.assigned_specialists > 0;
+                                details_parent
+                                    .spawn((
+                                        ButtonBundle {
+                                            style: Style {
+                                                width: Val::Percent(100.0),
+                                                padding: UiRect::all(Val::Px(5.0)),
+                                                ..default()
+                                            },
+                                            background_color: if can_unassign { NORMAL_BUTTON.into() } else { DISABLED_BUTTON.into() },
+                                            ..default()
+                                        },
+                                        UnassignSpecialistFromServiceBuildingButton(selected_service_id.clone()),
+                                    ))
+                                    .with_children(|btn| {
+                                        btn.spawn(TextBundle::from_section(
+                                            "Unassign Specialist (-1)",
+                                            TextStyle { font_size: 14.0, color: PRIMARY_TEXT_COLOR, ..default() },
+                                        ));
+                                    });
+                            });
+                        }
+                    }
+                }
+
             });
         }
     }
 }
+
 
 pub(super) fn assign_specialist_to_zone_button_interaction_system(
     mut interaction_query: Query<(&Interaction, &AssignSpecialistToZoneButton), (Changed<Interaction>, With<Button>)>,
@@ -330,6 +541,90 @@ pub(super) fn unassign_specialist_from_zone_button_interaction_system(
             if let Some(zone) = game_state.zones.iter().find(|z| z.id == *zone_id) {
                 if zone.assigned_specialists > 0 {
                     game_state::unassign_specialists_from_zone(&mut game_state, zone_id, 1);
+                }
+            }
+        }
+    }
+}
+
+pub(super) fn service_building_list_button_interaction_system(
+    mut selected: ResMut<SelectedServiceBuilding>,
+    mut button_query: Query<(&Interaction, &ServiceBuildingListButton, &mut BackgroundColor), With<Button>>,
+) {
+    for (interaction, data, mut color) in button_query.iter_mut() {
+        let currently_selected = selected.0.as_ref() == Some(&data.0);
+        if *interaction == Interaction::Pressed {
+            if currently_selected {
+                selected.0 = None;
+            } else {
+                selected.0 = Some(data.0.clone());
+            }
+        }
+
+        if selected.is_changed() || *interaction != Interaction::None {
+            if selected.0.as_ref() == Some(&data.0) {
+                *color = ACTIVE_BUTTON.into();
+            } else if *interaction == Interaction::Hovered {
+                *color = HOVERED_BUTTON.into();
+            } else {
+                *color = NORMAL_BUTTON.into();
+            }
+        }
+    }
+}
+
+pub(super) fn upgrade_service_building_button_interaction_system(
+    mut interaction_query: Query<(&Interaction, &UpgradeServiceBuildingButton), (Changed<Interaction>, With<Button>)>,
+    mut game_state: ResMut<GameState>,
+) {
+    for (interaction, button) in interaction_query.iter_mut() {
+        if *interaction == Interaction::Pressed {
+            game_state::upgrade_service_building(&mut game_state, &button.0);
+        }
+    }
+}
+
+pub(super) fn remove_service_building_button_interaction_system(
+    mut interaction_query: Query<(&Interaction, &RemoveServiceBuildingButton), (Changed<Interaction>, With<Button>)>,
+    mut game_state: ResMut<GameState>,
+    mut selected: ResMut<SelectedServiceBuilding>,
+) {
+    for (interaction, button) in interaction_query.iter_mut() {
+        if *interaction == Interaction::Pressed {
+            game_state::remove_service_building(&mut game_state, &button.0);
+            selected.0 = None;
+        }
+    }
+}
+
+pub(super) fn assign_specialist_to_service_building_button_interaction_system(
+    mut interaction_query: Query<(&Interaction, &AssignSpecialistToServiceBuildingButton), (Changed<Interaction>, With<Button>)>,
+    mut game_state: ResMut<GameState>,
+) {
+    for (interaction, button) in interaction_query.iter_mut() {
+        if *interaction == Interaction::Pressed {
+            if let Some(building) = game_state.service_buildings.iter().find(|b| b.id == button.0) {
+                if let Some(tier) = building.available_tiers.get(building.current_tier_index) {
+                    let can_assign = building.assigned_specialists < tier.specialist_requirement &&
+                        game_state.total_inhabitants.saturating_sub(game_state.assigned_specialists_total) > 0;
+                    if can_assign {
+                        game_state::assign_specialists_to_service_building(&mut game_state, &button.0, 1);
+                    }
+                }
+            }
+        }
+    }
+}
+
+pub(super) fn unassign_specialist_from_service_building_button_interaction_system(
+    mut interaction_query: Query<(&Interaction, &UnassignSpecialistFromServiceBuildingButton), (Changed<Interaction>, With<Button>)>,
+    mut game_state: ResMut<GameState>,
+) {
+    for (interaction, button) in interaction_query.iter_mut() {
+        if *interaction == Interaction::Pressed {
+            if let Some(building) = game_state.service_buildings.iter().find(|b| b.id == button.0) {
+                if building.assigned_specialists > 0 {
+                    game_state::unassign_specialists_from_service_building(&mut game_state, &button.0, 1);
                 }
             }
         }
