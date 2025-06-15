@@ -57,7 +57,7 @@ pub fn get_tutorial_steps() -> Vec<TooltipStep> {
             ui_highlight: Some("ui.resources_panel"),
         },
         TooltipStep {
-            trigger: |world| player_lacks_available_specialists(world),
+            trigger: |world| out_of_workers(world),
             title: "Need More Citizens",
             content: "You're out of workers. Build housing and food to grow your population.",
             required_action: None,
@@ -149,9 +149,9 @@ fn entity_produces_resource(world: &World, entity: &str) -> bool {
     }
 }
 
-fn player_lacks_available_specialists(world: &World) -> bool {
+fn out_of_workers(world: &World) -> bool {
     let gs = world.resource::<GameState>();
-    gs.total_inhabitants <= gs.assigned_specialists_total
+    gs.total_inhabitants <= gs.assigned_workforce
 }
 
 fn population_increased(world: &World) -> bool {
