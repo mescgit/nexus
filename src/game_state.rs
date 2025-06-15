@@ -1164,6 +1164,9 @@ pub fn add_service_building(game_state: &mut GameState, service_type: ServiceTyp
     };
     game_state.service_buildings.push(new_building);
     update_civic_index(game_state);
+    if service_type == ServiceType::Education {
+        update_total_specialist_slots(game_state);
+    }
     // Removed the println! for "Added Service Building" as the "Built..." notification covers it.
 }
 
@@ -1200,6 +1203,11 @@ pub fn upgrade_service_building(game_state: &mut GameState, building_id: &str) {
 
     if upgraded {
         update_civic_index(game_state);
+        if let Some(building) = game_state.service_buildings.iter().find(|b| b.id == building_id) {
+            if building.service_type == ServiceType::Education {
+                update_total_specialist_slots(game_state);
+            }
+        }
     }
 }
 
@@ -1208,6 +1216,9 @@ pub fn remove_service_building(game_state: &mut GameState, building_id: &str) {
         let removed_building = game_state.service_buildings.remove(index);
         game_state.assigned_specialists_total = game_state.assigned_specialists_total.saturating_sub(removed_building.assigned_specialists);
         update_civic_index(game_state);
+        if removed_building.service_type == ServiceType::Education {
+            update_total_specialist_slots(game_state);
+        }
         println!("Removed Service Building with ID {}", building_id);
     } else {
         println!("Service Building with ID {} not found for removal.", building_id);
@@ -1241,6 +1252,9 @@ pub fn assign_specialists_to_service_building(game_state: &mut GameState, buildi
             building.assigned_specialists += num_to_assign;
             game_state.assigned_specialists_total += num_to_assign;
             println!("Assigned {} specialists to service building {}. Total assigned globally: {}", num_to_assign, building_id, game_state.assigned_specialists_total);
+            if building.service_type == ServiceType::Education {
+                update_total_specialist_slots(game_state);
+            }
         }
     } else {
         println!("Service Building {} not found for specialist assignment.", building_id);
@@ -1253,6 +1267,9 @@ pub fn unassign_specialists_from_service_building(game_state: &mut GameState, bu
         building.assigned_specialists -= actual_unassign;
         game_state.assigned_specialists_total -= actual_unassign;
         println!("Unassigned {} specialists from service building {}. Total assigned globally: {}", actual_unassign, building_id, game_state.assigned_specialists_total);
+        if building.service_type == ServiceType::Education {
+            update_total_specialist_slots(game_state);
+        }
     } else {
         println!("Service Building {} not found for specialist unassignment.", building_id);
     }
@@ -1410,6 +1427,15 @@ pub fn update_total_specialist_slots(game_state: &mut GameState) {
             }
         }
     }
+    for building in &game_state.service_buildings {
+        if building.service_type == ServiceType::Education
+            && building.is_active
+            && building.assigned_specialists
+                >= building.available_tiers[building.current_tier_index].specialist_requirement
+        {
+            total_slots += 1;
+        }
+    }
     game_state.total_specialist_slots = total_slots;
 }
 
@@ -1472,6 +1498,7 @@ fn generate_income_system(game_state: &mut GameState) {
 fn deduct_upkeep_system(game_state: &mut GameState) {
     let mut remaining_credits = game_state.credits;
     let mut civic_index_needs_update = false;
+    let mut slots_need_update = false;
 
     let mut process_building = |cost: u32, is_active: &mut bool, id: &str, notif: &str| {
         if remaining_credits >= cost as f64 {
@@ -1507,6 +1534,7 @@ fn deduct_upkeep_system(game_state: &mut GameState) {
             process_building(tier.upkeep_cost, &mut zone.is_active, &format!("Zone {}", zone.id), "Zone");
             if was_active != zone.is_active {
                 civic_index_needs_update = true;
+                slots_need_update = true;
             }
         }
     }
@@ -1517,6 +1545,9 @@ fn deduct_upkeep_system(game_state: &mut GameState) {
             process_building(tier.upkeep_cost, &mut building.is_active, &format!("Service Building {}", building.id), "Service Building");
             if was_active != building.is_active {
                 civic_index_needs_update = true;
+                if building.service_type == ServiceType::Education {
+                    slots_need_update = true;
+                }
             }
         }
     }
@@ -1525,6 +1556,9 @@ fn deduct_upkeep_system(game_state: &mut GameState) {
 
     if civic_index_needs_update {
         update_civic_index(game_state);
+    }
+    if slots_need_update {
+        update_total_specialist_slots(game_state);
     }
 }
 
