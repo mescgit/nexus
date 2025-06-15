@@ -142,14 +142,16 @@ pub(super) fn build(viewport: &mut ChildBuilder, _assets: &Res<AssetServer>) {
 }
 pub(super) fn update_colony_status_panel_system(
     game_state: Res<GameState>,
-    mut diag_query: Query<(&mut Text, &DiagnosticItem)>,
-    mut pop_status_query: Query<&mut Text, With<PopulationStatusText>>,
-    mut pop_factors_query: Query<&mut Text, With<PopulationFactorsText>>,
+    mut queries: ParamSet<(
+        Query<(&mut Text, &DiagnosticItem)>,
+        Query<&mut Text, With<PopulationStatusText>>,
+        Query<&mut Text, With<PopulationFactorsText>>,
+    )>,
 ) {
     if !game_state.is_changed() { return; }
 
     // Update population summary
-    if let Ok(mut pop_text) = pop_status_query.get_single_mut() {
+    if let Ok(mut pop_text) = queries.p1().get_single_mut() {
         let has_housing = game_state.total_inhabitants < game_state.available_housing_capacity;
         let has_food = game_state.simulated_has_sufficient_nutrient_paste;
         let happy = game_state.colony_happiness > 50.0;
@@ -172,7 +174,7 @@ pub(super) fn update_colony_status_panel_system(
         );
         pop_text.sections[0].style.color = color;
 
-        if let Ok(mut factors_text) = pop_factors_query.get_single_mut() {
+        if let Ok(mut factors_text) = queries.p2().get_single_mut() {
             let housing = if has_housing { "Housing OK" } else { "No Housing" };
             let food = if has_food { "Food OK" } else { "Food LOW" };
             factors_text.sections[0].value = format!(
@@ -185,7 +187,7 @@ pub(super) fn update_colony_status_panel_system(
         }
     }
 
-    for (mut text, item) in diag_query.iter_mut() {
+    for (mut text, item) in queries.p0().iter_mut() {
         let (status_text, color) = match item.0 {
             DiagnosticType::NutrientPaste => {
                 let status = game_state.simulated_has_sufficient_nutrient_paste;
