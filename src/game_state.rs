@@ -8,6 +8,8 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicU32, Ordering};
 
+const FOOD_CONSUMPTION_PER_PERSON: f32 = 0.1;
+
 use crate::resources::population::PopulationResource;
 use crate::systems::happiness::{happiness_system, calculate_colony_happiness, HappinessResource};
 use crate::systems::services::service_coverage_system;
@@ -1373,7 +1375,8 @@ impl Plugin for GameLogicPlugin {
                     workforce_assignment_system,
                     game_tick_system.after(workforce_assignment_system),
                     research_system,
-                    population_growth_system.after(game_tick_system),
+                    food_consumption_system.after(game_tick_system),
+                    population_growth_system.after(food_consumption_system),
                     fabricator_production_tick_system.after(game_tick_system),
                     processing_plant_operations_tick_system.after(game_tick_system),
                     upkeep_income_tick_system.after(processing_plant_operations_tick_system),
@@ -1595,7 +1598,27 @@ fn game_tick_system(mut game_state: ResMut<GameState>) {
     }
 
     // Update food status for happiness calculation
-    game_state.simulated_has_sufficient_nutrient_paste = game_state.current_resources.get(&ResourceType::NutrientPaste).unwrap_or(&0.0) > &0.0;
+    game_state.simulated_has_sufficient_nutrient_paste = game_state
+        .current_resources
+        .get(&ResourceType::NutrientPaste)
+        .unwrap_or(&0.0)
+        > &0.0;
+}
+
+fn food_consumption_system(mut game_state: ResMut<GameState>) {
+    let consumption = game_state.total_inhabitants as f32 * FOOD_CONSUMPTION_PER_PERSON;
+    let entry = game_state
+        .current_resources
+        .entry(ResourceType::NutrientPaste)
+        .or_insert(0.0);
+
+    if *entry >= consumption {
+        *entry -= consumption;
+    } else {
+        *entry = 0.0;
+    }
+
+    game_state.simulated_has_sufficient_nutrient_paste = *entry > 0.0;
 }
 
 
