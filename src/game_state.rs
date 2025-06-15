@@ -8,7 +8,9 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicU32, Ordering};
 
-const FOOD_CONSUMPTION_PER_PERSON: f32 = 0.1;
+pub const FOOD_CONSUMPTION_PER_PERSON: f32 = 0.1;
+pub const BASE_STORAGE_CAPACITY: f32 = 1000.0;
+pub const STORAGE_SILO_CAPACITY: f32 = 500.0;
 
 use crate::resources::population::PopulationResource;
 use crate::systems::happiness::{happiness_system, calculate_colony_happiness, HappinessResource};
@@ -1380,7 +1382,8 @@ impl Plugin for GameLogicPlugin {
                     fabricator_production_tick_system.after(game_tick_system),
                     processing_plant_operations_tick_system.after(game_tick_system),
                     upkeep_income_tick_system.after(processing_plant_operations_tick_system),
-                    service_coverage_system.after(upkeep_income_tick_system),
+                    clamp_resource_system.after(upkeep_income_tick_system),
+                    service_coverage_system.after(clamp_resource_system),
                     happiness_system.after(service_coverage_system),
                     update_colony_stats_system.after(happiness_system),
                     update_graph_data_system.after(update_colony_stats_system),
@@ -1586,15 +1589,15 @@ fn game_tick_system(mut game_state: ResMut<GameState>) {
         let staffed_bio_domes = game_state.bio_domes.iter().filter(|d| d.is_staffed).count() as f32;
         let staffed_extractors = game_state.extractors.iter().filter(|e| e.is_staffed).count() as f32;
 
-        let capacity: u32 = game_state.storage_silos.len() as u32 * 500;
-        let total_capacity = 1000 + capacity; // Base capacity + silo capacity
+        let total_capacity = BASE_STORAGE_CAPACITY
+            + game_state.storage_silos.len() as f32 * STORAGE_SILO_CAPACITY;
 
         // Now, update resources without holding the previous borrows.
         let nutrient_paste_amount = game_state.current_resources.entry(ResourceType::NutrientPaste).or_insert(0.0);
-        *nutrient_paste_amount = (*nutrient_paste_amount + 5.0 * staffed_bio_domes).min(total_capacity as f32);
+        *nutrient_paste_amount = (*nutrient_paste_amount + 5.0 * staffed_bio_domes).min(total_capacity);
 
         let ferrocrete_ore_amount = game_state.current_resources.entry(ResourceType::FerrocreteOre).or_insert(0.0);
-        *ferrocrete_ore_amount = (*ferrocrete_ore_amount + 2.5 * staffed_extractors).min(total_capacity as f32);
+        *ferrocrete_ore_amount = (*ferrocrete_ore_amount + 2.5 * staffed_extractors).min(total_capacity);
     }
 
     // Update food status for happiness calculation
@@ -1619,6 +1622,14 @@ fn food_consumption_system(mut game_state: ResMut<GameState>) {
     }
 
     game_state.simulated_has_sufficient_nutrient_paste = *entry > 0.0;
+}
+
+fn clamp_resource_system(mut game_state: ResMut<GameState>) {
+    for value in game_state.current_resources.values_mut() {
+        if *value < 0.0 {
+            *value = 0.0;
+        }
+    }
 }
 
 
