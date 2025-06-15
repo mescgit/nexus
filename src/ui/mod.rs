@@ -8,15 +8,33 @@ use crate::game_state::{
     ResourceType,
     SaveGameEvent,
     Tech,
-    ALL_BUILDING_TYPES,
+    // ALL_BUILDING_TYPES, // Removed
 };
-use crate::game_state::{BuildingType as GameBuildingType, DevelopmentPhase, ServiceType, ZoneType};
+// use crate::game_state::{BuildingType as GameBuildingType, DevelopmentPhase, ServiceType, ZoneType}; // GameBuildingType removed
+use crate::game_state::{DevelopmentPhase, ServiceType, ZoneType}; // Keep these for now, though dashboard might not need them directly after its refactor
+use crate::components::building::BuildingVariant; // Added for consistency, though might be unused here directly
+use bevy::log::info; // Added for logging in test system
+
 mod dashboard;
 mod construction;
 mod colony_status;
 mod research;
-use dashboard::{DashboardPanel, ManagedStructuresPanel, ZoneListButton, ZoneDetailsPanel, UpgradeZoneButton, RemoveZoneButton, AssignSpecialistToZoneButton, UnassignSpecialistFromZoneButton};
-use construction::ConstructionPanel;
+// Updated dashboard imports
+use dashboard::{
+    DashboardPanel, // Used in manage_app_panels_visibility
+    // The following are components defined in dashboard.rs.
+    // They are not directly used in ui/mod.rs's functions, but ui/mod.rs
+    // is the parent module that makes them available if other UI modules were to import dashboard components.
+    // For now, this ensures ui/mod.rs doesn't error if dashboard.rs is trying to export them.
+    ManagedStructuresPanel,
+    ManagedBuildingButton, BuildingDetailsPanel, UpgradeBuildingButton, RemoveBuildingButton,
+    AssignWorkforceButton, UnassignWorkforceButton,
+    AdminSpireInfoPanel, LegacyStructurePanel, ConstructLegacyStructureButton, UpgradeLegacyStructureButton,
+    AdminSpireTierText, ConstructSpireButton, UpgradeSpireButton,
+    SaveGameButton, LoadGameButton, NotificationsPanel, AnalyticsGraphPanel, GraphArea,
+    ToggleActiveButton, // Added from dashboard
+};
+// use construction::ConstructionPanel; // Removed
 use colony_status::ColonyStatusPanel;
 use research::ResearchPanel;
 
@@ -50,8 +68,23 @@ struct ColonyHappinessText;
 #[derive(Component)]
 pub struct UiTag(pub &'static str);
 
+// Enum for selecting which building variant to construct (already added in a previous step, ensure it's here)
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum BuildingVariantSelector {
+    Extractor, BioDome, PowerRelay, ResearchInstitute, StorageSilo, Habitation,
+    ServiceWellness, ServiceSecurity, ServiceEducation, ServiceRecreation, ServiceSpiritual,
+    ZoneCommercial, ZoneLightIndustry, Fabricator, ProcessingPlant,
+}
+// Ensure Default trait if it's to be a resource default and not init_resource manually
+impl Default for BuildingVariantSelector { fn default() -> Self { BuildingVariantSelector::Extractor } }
+
+
 #[derive(Resource, Default, Debug)]
-pub struct SelectedBuilding(pub Option<GameBuildingType>);
+pub struct SelectedBuildingVariantToConstruct(pub Option<BuildingVariantSelector>);
+
+#[derive(Resource, Default, Debug)]
+pub struct SelectedPlacedBuildingId(pub Option<String>);
+
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ConstructionCategory {
@@ -90,44 +123,58 @@ impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<CurrentApp>()
             .init_resource::<CurrentConstructionCategory>()
-            .init_resource::<SelectedBuilding>()
+            // .init_resource::<SelectedBuilding>() // Removed
+            .init_resource::<SelectedBuildingVariantToConstruct>() // Added
+            .init_resource::<SelectedPlacedBuildingId>() // Added
             .init_resource::<SelectedTech>()
-            .init_resource::<SelectedZone>()
+            .init_resource::<SelectedZone>() // This might be redundant if SelectedPlacedBuildingId covers its use
             .add_systems(Startup, setup_ui)
                 .add_systems(Update, (
                     app_drawer_button_system,
                     manage_app_panels_visibility,
                     update_status_ticker_system,
-                    dashboard::update_dashboard_notifications_system,
-                    dashboard::update_admin_spire_panel_system,
-                    dashboard::update_legacy_structure_panel_system,
-                    dashboard::update_managed_structures_panel_system,
-                    dashboard::zone_list_button_interaction_system,
-                    dashboard::upgrade_zone_button_interaction_system,
-                    dashboard::remove_zone_button_interaction_system,
-                    dashboard::assign_specialist_to_zone_button_interaction_system,
-                    dashboard::unassign_specialist_from_zone_button_interaction_system,
-                    dashboard::admin_spire_button_interaction_system,
-                    dashboard::legacy_structure_button_system,
-                    dashboard::draw_graph_gizmos,
-                    construction::construction_category_tab_system,
-                    dashboard::save_load_button_system,
+                    // construction::construction_category_tab_system, // Commented out
+                    test_gamestate_call_system, // Test system from ui/mod.rs
+                    crate::ui::construction::minimal_construction_test_system, // Test system from construction.rs
+                    // === DASHBOARD SYSTEMS COMMENTED OUT FOR TEST ===
+                    // dashboard::update_dashboard_notifications_system,
+                    // dashboard::update_admin_spire_panel_system,
+                    // dashboard::update_legacy_structure_panel_system,
+                    // dashboard::update_managed_structures_panel_system,
+                    // dashboard::managed_building_button_interaction_system,
+                    // dashboard::upgrade_building_button_interaction_system,
+                    // dashboard::remove_building_button_interaction_system,
+                    // dashboard::assign_workforce_button_interaction_system,
+                    // dashboard::unassign_workforce_button_interaction_system,
+                    // dashboard::admin_spire_button_interaction_system,
+                    // dashboard::legacy_structure_button_system,
+                    // dashboard::draw_graph_gizmos,
+                    // dashboard::save_load_button_system,
                 ))
-                .add_systems(Update, (
-                    construction::update_construction_list_system,
-                    construction::construction_item_interaction_system,
-                    construction::update_construction_details_panel_system,
-                    construction::construction_interaction_system,
-                    construction::habitation_construction_system,
-                    construction::service_construction_system,
-                    construction::zone_construction_system,
-                    colony_status::update_colony_status_panel_system,
-                    research::update_research_panel_system,
-                    research::research_item_button_system,
-                    research::update_research_details_panel_system,
-                    research::initiate_research_button_system,
-                ));
+                // Comment out the second Update schedule group entirely for now
+                // .add_systems(Update, (
+                //     construction::update_construction_list_system,
+                //     construction::construction_item_interaction_system,
+                //     construction::update_construction_details_panel_system,
+                //     construction::construction_interaction_system,
+                //     colony_status::update_colony_status_panel_system,
+                //     research::update_research_panel_system,
+                //     research::research_item_button_system,
+                //     research::update_research_details_panel_system,
+                //     research::initiate_research_button_system,
+                // ));
+            ; // Semicolon to end the app builder chain if last .add_systems is commented out
     }
+}
+
+// Test system to call a game_state function
+fn test_gamestate_call_system() {
+    // Call the function using its fully qualified path
+    let tiers_vec = crate::game_state::get_legacy_structure_tiers();
+    info!("test_gamestate_call_system: Called get_legacy_structure_tiers. Tier count: {}", tiers_vec.len());
+    // Additionally, let's test another problematic one if possible, e.g. an add function
+    // To do this safely without needing a full GameState ResMut, we can't easily call add_X functions.
+    // For now, just testing a 'get' function is a good first step.
 }
 
 fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
@@ -238,7 +285,7 @@ fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
             }).with_children(|viewport| {
 
                 dashboard::build(viewport, &asset_server);
-                construction::build(viewport, &asset_server);
+                // construction::build(viewport, &asset_server); // Commented out due to simplification of construction.rs
                 colony_status::build(viewport, &asset_server);
                 research::build(viewport, &asset_server);
             });
@@ -273,23 +320,42 @@ fn manage_app_panels_visibility(
     current_app: Res<CurrentApp>,
     mut panel_queries: ParamSet<(
         Query<&mut Style, With<DashboardPanel>>,
-        Query<&mut Style, With<ConstructionPanel>>,
+        // Query<&mut Style, With<ConstructionPanel>>, // Removed
         Query<&mut Style, With<ColonyStatusPanel>>,
         Query<&mut Style, With<ResearchPanel>>,
     )>,
+    // If ConstructionPanel is removed, we need a new way to show/hide the construction UI.
+    // For now, let's assume construction UI is managed internally or via a different component.
+    // Or, if construction::minimal_construction_test_system creates its own root UI node,
+    // we might not need to toggle visibility here for that specific test system.
 ) {
     if !current_app.is_changed() { return; }
 
-    for mut style in panel_queries.p0().iter_mut() { style.display = Display::None; }
-    for mut style in panel_queries.p1().iter_mut() { style.display = Display::None; }
-    for mut style in panel_queries.p2().iter_mut() { style.display = Display::None; }
-    for mut style in panel_queries.p3().iter_mut() { style.display = Display::None; }
+    // Hide all panels first
+    if let Ok(mut style) = panel_queries.p0().get_single_mut() { style.display = Display::None; }
+    // if let Ok(mut style) = panel_queries.p1().get_single_mut() { style.display = Display::None; } // ConstructionPanel removed
+    if let Ok(mut style) = panel_queries.p1().get_single_mut() { style.display = Display::None; } // p1 is now ColonyStatus
+    if let Ok(mut style) = panel_queries.p2().get_single_mut() { style.display = Display::None; } // p2 is now Research
+
 
     match current_app.0 {
-        AppType::Dashboard => panel_queries.p0().single_mut().display = Display::Flex,
-        AppType::Construction => panel_queries.p1().single_mut().display = Display::Flex,
-        AppType::ColonyStatus => panel_queries.p2().single_mut().display = Display::Flex,
-        AppType::Research => panel_queries.p3().single_mut().display = Display::Flex,
+        AppType::Dashboard => {
+            if let Ok(mut style) = panel_queries.p0().get_single_mut() { style.display = Display::Flex; }
+        }
+        AppType::Construction => {
+            // Since ConstructionPanel is removed, what do we toggle?
+            // For now, we do nothing here. The minimal_construction_test_system might always be visible
+            // or handle its own visibility if it spawns/despawns UI.
+            // If a new root component for construction UI exists, query for that.
+            // For now, this case will do nothing to avoid errors.
+            info!("AppType::Construction selected, no specific panel to toggle in manage_app_panels_visibility.");
+        }
+        AppType::ColonyStatus => {
+            if let Ok(mut style) = panel_queries.p1().get_single_mut() { style.display = Display::Flex; } // p1 is now ColonyStatus
+        }
+        AppType::Research => {
+            if let Ok(mut style) = panel_queries.p2().get_single_mut() { style.display = Display::Flex; } // p2 is now Research
+        }
     }
 }
 

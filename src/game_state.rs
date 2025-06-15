@@ -1,533 +1,68 @@
 // src/game_state.rs
 
 use bevy::prelude::*;
-use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use crate::resources::population::PopulationResource;
-use crate::systems::happiness::{happiness_system, calculate_colony_happiness, HappinessResource};
-use crate::systems::services::service_coverage_system;
-use crate::systems::population::population_growth_system;
-use crate::systems::research::research_system;
+// Import new building components
+// Use the tier types from components::building directly
+use crate::components::building::{
+    AdministrativeSpireTier, Building, BuildingVariant, LegacyStructureTier,
+    BioDomeTier, ExtractorTier, FabricatorTier, HabitationTier, PowerRelayTier,
+    ProcessingPlantTier, ResearchInstituteTier, ServiceTier, StorageSiloTier, ZoneTier,
+};
 
-// --- Data Structs ---
+// --- Core Enums & Basic Structs ---
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub enum DevelopmentPhase {
-    DP1,
-    DP2,
-    DP3,
+pub enum DevelopmentPhase { DP1, DP2, DP3 }
+impl Default for DevelopmentPhase { fn default() -> Self { DevelopmentPhase::DP1 } }
+
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy, Serialize, Deserialize, PartialOrd, Ord)]
+pub enum ResourceType {
+    FerrocreteOre, NutrientPaste, CuprumDeposits, Power,
+    ManufacturedGoods, AdvancedComponents, RefinedXylos, ProcessedQuantium,
+    RawXylos, RawQuantium,
 }
 
-impl Default for DevelopmentPhase {
-    fn default() -> Self {
-        DevelopmentPhase::DP1
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum Tech {
+    BasicConstructionProtocols, EfficientExtraction, AdvancedFabrication,
+    IndustrialProcessing, ZoningOrdinances, ArcologyConstruction,
 }
 
-// --- Legacy Structure ---
-#[derive(Serialize, Deserialize, Clone)]
-pub struct LegacyStructureTier {
-    pub name: String,
-    pub construction_credits_cost: u32,
-    pub happiness_bonus: f32,
-    pub income_bonus: f64,
-}
+// Enums that will be used by BuildingVariant and specific Tier data
+// These are defined in components::building.rs but also needed here for some systems if they use them directly.
+// For now, keep them here if systems depend on them directly.
+// If not, they can be removed from here and used via components::building::ServiceType etc.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ServiceType { Wellness, Security, Education, Recreation, Spiritual, }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ZoneType { Commercial, LightIndustry, }
 
+
+// Local definitions of LegacyStructureTier and AdministrativeSpireTier are removed.
+// They are now imported directly from crate::components::building.
+
+// These structs still need to be defined locally if their fields are different from
+// what BuildingVariant would hold, or if they are accessed directly on GameState.
+// For now, we ensure their `available_tiers` field uses the imported Tier types.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct LegacyStructure {
     pub current_tier_index: usize,
-    pub available_tiers: Vec<LegacyStructureTier>,
-}
-
-pub fn get_legacy_structure_tiers() -> Vec<LegacyStructureTier> {
-    vec![
-        LegacyStructureTier {
-            name: "Genesis Monument".to_string(),
-            construction_credits_cost: 50000,
-            happiness_bonus: 5.0,
-            income_bonus: 0.0,
-        },
-        LegacyStructureTier {
-            name: "Unity Beacon".to_string(),
-            construction_credits_cost: 250000,
-            happiness_bonus: 10.0,
-            income_bonus: 500.0,
-        },
-    ]
-}
-
-pub fn construct_legacy_structure(game_state: &mut GameState) {
-    if game_state.legacy_structure.is_some() {
-        return;
-    }
-    let all_tiers = get_legacy_structure_tiers();
-    let initial_tier = &all_tiers[0];
-
-    if game_state.credits < initial_tier.construction_credits_cost as f64 {
-        add_notification(&mut game_state.notifications, "Insufficient credits for Legacy Structure.".to_string(), 0.0);
-        return;
-    }
-    game_state.credits -= initial_tier.construction_credits_cost as f64;
-    game_state.legacy_structure = Some(LegacyStructure {
-        current_tier_index: 0,
-        available_tiers: all_tiers.clone(),
-    });
-    add_notification(&mut game_state.notifications, format!("Construction of the {} has begun!", initial_tier.name), 0.0);
-}
-
-pub fn upgrade_legacy_structure(game_state: &mut GameState) {
-    if let Some(structure) = &mut game_state.legacy_structure {
-        if structure.current_tier_index < structure.available_tiers.len() - 1 {
-            let next_tier_index = structure.current_tier_index + 1;
-            let next_tier = &structure.available_tiers[next_tier_index];
-            if game_state.credits < next_tier.construction_credits_cost as f64 {
-                add_notification(&mut game_state.notifications, "Insufficient credits to upgrade Legacy Structure.".to_string(), 0.0);
-                return;
-            }
-            game_state.credits -= next_tier.construction_credits_cost as f64;
-            structure.current_tier_index = next_tier_index;
-            add_notification(&mut game_state.notifications, format!("{} is complete!", next_tier.name), 0.0);
-        }
-    }
-}
-
-
-// --- Administrative Spire Logic ---
-
-pub fn construct_administrative_spire(game_state: &mut GameState) {
-    if game_state.administrative_spire.is_none() {
-        let all_tiers = vec![
-            AdministrativeSpireTier { name: "Command Post".to_string(), power_requirement: 10, unlocks_phase: DevelopmentPhase::DP1, nutrient_paste_link_required: false, construction_credits_cost: 1000, upgrade_credits_cost: 0 },
-            AdministrativeSpireTier { name: "Integrated Command".to_string(), power_requirement: 25, unlocks_phase: DevelopmentPhase::DP2, nutrient_paste_link_required: true, construction_credits_cost: 0, upgrade_credits_cost: 2500 },
-            AdministrativeSpireTier { name: "Planetary Nexus".to_string(), power_requirement: 50, unlocks_phase: DevelopmentPhase::DP3, nutrient_paste_link_required: true, construction_credits_cost: 0, upgrade_credits_cost: 5000 },
-        ];
-
-        let initial_tier_def = &all_tiers[0];
-
-        if game_state.credits < initial_tier_def.construction_credits_cost as f64 {
-            add_notification(&mut game_state.notifications, format!("Insufficient credits for Spire."), 0.0);
-            return;
-        }
-        game_state.credits -= initial_tier_def.construction_credits_cost as f64;
-        add_notification(&mut game_state.notifications, format!("Constructed Administrative Spire."), 0.0);
-
-        let spire = AdministrativeSpire {
-            current_tier_index: 0,
-            available_tiers: all_tiers,
-        };
-        game_state.administrative_spire = Some(spire);
-        game_state.current_development_phase = DevelopmentPhase::DP1;
-    }
-}
-
-pub fn upgrade_administrative_spire(game_state: &mut GameState) {
-    if let Some(spire) = &mut game_state.administrative_spire {
-        if spire.current_tier_index >= spire.available_tiers.len() - 1 {
-            add_notification(&mut game_state.notifications, "Spire already at maximum tier.".to_string(), 0.0);
-            return;
-        }
-
-        let next_tier_index = spire.current_tier_index + 1;
-        let next_tier_info = &spire.available_tiers[next_tier_index];
-        let current_tier_info = &spire.available_tiers[spire.current_tier_index];
-
-        if game_state.credits < next_tier_info.upgrade_credits_cost as f64 {
-            add_notification(&mut game_state.notifications, "Insufficient credits to upgrade Spire.".to_string(), 0.0);
-            return;
-        }
-
-        let current_spire_consumption = current_tier_info.power_requirement;
-        let power_consumed_by_others = game_state.total_consumed_power - current_spire_consumption as f32;
-        let available_power_for_spire_upgrade = game_state.total_generated_power - power_consumed_by_others;
-
-        if available_power_for_spire_upgrade < next_tier_info.power_requirement as f32 {
-            add_notification(&mut game_state.notifications, "Insufficient power to upgrade Spire.".to_string(), 0.0);
-            return;
-        }
-
-        if next_tier_info.nutrient_paste_link_required && game_state.current_resources.get(&ResourceType::NutrientPaste).unwrap_or(&0.0) <= &0.0 {
-            add_notification(&mut game_state.notifications, "Nutrient Paste link required for Spire upgrade.".to_string(), 0.0);
-            return;
-        }
-
-        game_state.credits -= next_tier_info.upgrade_credits_cost as f64;
-        spire.current_tier_index = next_tier_index;
-        game_state.current_development_phase = next_tier_info.unlocks_phase;
-
-        add_notification(&mut game_state.notifications, format!("Upgraded Spire to {}.", next_tier_info.name), 0.0);
-
-    } else {
-        add_notification(&mut game_state.notifications, "Administrative Spire has not been constructed yet.".to_string(), 0.0);
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub struct AdministrativeSpireTier {
-    pub name: String,
-    pub power_requirement: u32,
-    pub unlocks_phase: DevelopmentPhase,
-    pub nutrient_paste_link_required: bool,
-    pub construction_credits_cost: u32,
-    pub upgrade_credits_cost: u32,
+    pub available_tiers: Vec<LegacyStructureTier>, // Uses imported LegacyStructureTier
 }
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct AdministrativeSpire {
     pub current_tier_index: usize,
-    pub available_tiers: Vec<AdministrativeSpireTier>,
+    pub available_tiers: Vec<AdministrativeSpireTier>, // Uses imported AdministrativeSpireTier
 }
 
-// --- Habitation Data Structures ---
-
-#[derive(Clone, Serialize, Deserialize)]
-pub struct HabitationStructureTier {
-    pub name: String,
-    pub housing_capacity: u32,
-    pub specialist_slots: u32,
-    pub construction_credits_cost: u32,
-    pub required_tech: Option<Tech>,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub struct HabitationStructure {
-    pub id: String, // Unique identifier
-    pub tier_index: usize,
-    pub available_tiers: Vec<HabitationStructureTier>,
-    pub current_inhabitants: u32,
-    pub assigned_specialists: u32,
-    pub position: Option<(f32, f32)>,
-}
-
-// --- Service Building Data Structures ---
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum ServiceType {
-    Wellness,
-    Security,
-    Education,
-    Recreation,
-    Spiritual,
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-pub struct ServiceBuildingTier {
-    pub name: String,
-    pub specialist_requirement: u32,
-    pub service_capacity: u32,
-    pub service_radius: f32,
-    pub upkeep_cost: u32,
-    pub civic_index_contribution: u32,
-    pub construction_credits_cost: u32,
-    pub required_tech: Option<Tech>,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub struct ServiceBuilding {
-    pub id: String,
-    pub service_type: ServiceType,
-    pub current_tier_index: usize,
-    pub available_tiers: Vec<ServiceBuildingTier>,
-    pub assigned_specialists: u32,
-    pub is_active: bool,
-    pub position: Option<(f32, f32)>,
-}
-
-// --- Zone Data Structures ---
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum ZoneType {
-    Commercial,
-    LightIndustry,
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-pub struct ZoneTier {
-    pub name: String,
-    pub specialist_jobs_provided: u32,
-    pub civic_index_contribution: u32,
-    pub upkeep_cost: u32,
-    pub construction_credits_cost: u32,
-    pub income_generation: u32,
-    pub required_tech: Option<Tech>,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub struct Zone {
-    pub id: String,
-    pub zone_type: ZoneType,
-    pub current_tier_index: usize,
-    pub available_tiers: Vec<ZoneTier>,
-    pub assigned_specialists: u32,
-    pub is_active: bool,
-}
-
-
-// --- Processing Plant Logic ---
-
-pub fn get_processing_plant_tiers() -> Vec<ProcessingPlantTier> {
-    vec![
-        ProcessingPlantTier {
-            name: "Xylos Purifier".to_string(),
-            unlocks_resource: Some(ResourceType::RawXylos),
-            input_resource: Some((ResourceType::RawXylos, 2)),
-            output_resource: Some((ResourceType::RefinedXylos, 1)),
-            processing_rate_per_sec: Some(0.5),
-            power_requirement: 20,
-            specialist_requirement: 2,
-            construction_credits_cost: 150,
-            upkeep_cost: 10,
-        },
-        ProcessingPlantTier {
-            name: "Quantium Resonator".to_string(),
-            unlocks_resource: Some(ResourceType::RawQuantium),
-            input_resource: None,
-            output_resource: None,
-            processing_rate_per_sec: None,
-            power_requirement: 25,
-            specialist_requirement: 3,
-            construction_credits_cost: 200,
-            upkeep_cost: 15,
-        },
-         ProcessingPlantTier {
-            name: "Advanced Material Synthesizer".to_string(),
-            unlocks_resource: None,
-            input_resource: Some((ResourceType::CuprumDeposits, 3)),
-            output_resource: Some((ResourceType::ProcessedQuantium, 1)),
-            processing_rate_per_sec: Some(0.2),
-            power_requirement: 40,
-            specialist_requirement: 4,
-            construction_credits_cost: 300,
-            upkeep_cost: 20,
-        },
-    ]
-}
-
-pub fn add_processing_plant(game_state: &mut GameState, tier_index: usize) {
-    let all_tiers = get_processing_plant_tiers();
-    if tier_index >= all_tiers.len() {
-        println!("Error: Invalid tier index for processing plant.");
-        return;
-    }
-    let tier_info = &all_tiers[tier_index];
-    if game_state.credits < tier_info.construction_credits_cost as f64 {
-        add_notification(&mut game_state.notifications, format!("Not enough credits to build {}.", tier_info.name), 0.0);
-        return;
-    }
-    game_state.credits -= tier_info.construction_credits_cost as f64;
-    add_notification(&mut game_state.notifications, format!("Built {}.", tier_info.name), 0.0);
-
-    let new_plant = ProcessingPlantData {
-        id: generate_unique_id(),
-        tier_index,
-        available_tiers: all_tiers.clone(),
-        assigned_specialists: 0,
-        is_active: false,
-        processing_progress: 0.0,
-    };
-
-    if let Some(unlocked_res) = tier_info.unlocks_resource {
-        game_state.unlocked_raw_materials.insert(unlocked_res);
-    }
-    game_state.processing_plants.push(new_plant);
-}
-
-pub fn upgrade_processing_plant(game_state: &mut GameState, plant_id: &str) {
-    if let Some(plant) = game_state.processing_plants.iter_mut().find(|p| p.id == plant_id) {
-        if plant.tier_index < plant.available_tiers.len() - 1 {
-            let next_tier_index = plant.tier_index + 1;
-            let next_tier_info = &plant.available_tiers[next_tier_index];
-
-            let upgrade_cost = next_tier_info.construction_credits_cost;
-
-            if game_state.credits < upgrade_cost as f64 {
-                println!("Not enough credits to upgrade Processing Plant {} to {}. Required: {}, Available: {:.2}", plant_id, next_tier_info.name, upgrade_cost, game_state.credits);
-                return;
-            }
-            game_state.credits -= upgrade_cost as f64;
-            println!("Upgraded Processing Plant {} to {} for {} credits. Remaining credits: {:.2}", plant_id, next_tier_info.name, upgrade_cost, game_state.credits);
-
-            plant.tier_index = next_tier_index;
-            plant.processing_progress = 0.0;
-
-            if plant.assigned_specialists > next_tier_info.specialist_requirement {
-                let to_unassign = plant.assigned_specialists - next_tier_info.specialist_requirement;
-                plant.assigned_specialists -= to_unassign;
-                game_state.assigned_specialists_total -= to_unassign;
-            }
-
-            if let Some(unlocked_res) = next_tier_info.unlocks_resource {
-                if game_state.unlocked_raw_materials.insert(unlocked_res) {
-                    println!("Processing Plant {} upgrade unlocked gathering of {:?}", plant.id, unlocked_res);
-                }
-            }
-            println!("Upgraded Processing Plant {} to {}", plant_id, next_tier_info.name);
-        } else {
-            println!("Processing Plant {} is already at max tier.", plant_id);
-        }
-    } else {
-        println!("Processing Plant with ID {} not found.", plant_id);
-    }
-}
-
-pub fn remove_processing_plant(game_state: &mut GameState, plant_id: &str) {
-    if let Some(index) = game_state.processing_plants.iter().position(|p| p.id == plant_id) {
-        let removed_plant = game_state.processing_plants.remove(index);
-        game_state.assigned_specialists_total = game_state.assigned_specialists_total.saturating_sub(removed_plant.assigned_specialists);
-        println!("Removed Processing Plant with ID {}", plant_id);
-    } else {
-        println!("Processing Plant with ID {} not found for removal.", plant_id);
-    }
-}
-
-pub fn assign_specialists_to_processing_plant(game_state: &mut GameState, plant_id: &str, num_to_assign: u32) {
-    if let Some(plant) = game_state.processing_plants.iter_mut().find(|p| p.id == plant_id) {
-        if let Some(tier) = plant.available_tiers.get(plant.tier_index) {
-            let available_general_inhabitants = game_state.total_inhabitants.saturating_sub(game_state.assigned_specialists_total);
-            if available_general_inhabitants < num_to_assign {
-                println!("Not enough unassigned inhabitants for Processing Plant {}.", plant_id); return;
-            }
-            if plant.assigned_specialists + num_to_assign > tier.specialist_requirement {
-                println!("Cannot assign more specialists than required for Processing Plant {}. Max: {}", plant_id, tier.specialist_requirement); return;
-            }
-            plant.assigned_specialists += num_to_assign;
-            game_state.assigned_specialists_total += num_to_assign;
-            println!("Assigned {} specialists to Processing Plant {}.", num_to_assign, plant_id);
-        }
-    } else {
-        println!("Processing Plant {} not found.", plant_id);
-    }
-}
-
-pub fn unassign_specialists_from_processing_plant(game_state: &mut GameState, plant_id: &str, num_to_unassign: u32) {
-     if let Some(plant) = game_state.processing_plants.iter_mut().find(|p| p.id == plant_id) {
-        let actual_unassign = num_to_unassign.min(plant.assigned_specialists);
-        plant.assigned_specialists -= actual_unassign;
-        game_state.assigned_specialists_total -= actual_unassign;
-        plant.is_active = false;
-        plant.processing_progress = 0.0;
-        println!("Unassigned {} specialists from Processing Plant {}.", actual_unassign, plant_id);
-    } else {
-        println!("Processing Plant {} not found.", plant_id);
-    }
-}
-
-pub fn processing_plant_operations_system(game_state: &mut GameState, time_delta_secs: f32) {
-    for plant in game_state.processing_plants.iter_mut() {
-        if let Some(tier) = plant.available_tiers.get(plant.tier_index) {
-            let has_power = *game_state.current_resources.get(&ResourceType::Power).unwrap_or(&0.0) >= tier.power_requirement as f32;
-            let has_specialists = plant.assigned_specialists >= tier.specialist_requirement;
-
-            plant.is_active = has_power && has_specialists;
-
-            if !plant.is_active {
-                plant.processing_progress = 0.0;
-                continue;
-            }
-
-            if let (Some((input_type, input_amount_per_batch)), Some((output_type, output_amount_per_batch)), Some(rate)) =
-                (tier.input_resource, tier.output_resource, tier.processing_rate_per_sec) {
-
-                let potential_batches_this_tick = rate * time_delta_secs;
-                plant.processing_progress += potential_batches_this_tick;
-
-                if plant.processing_progress >= 1.0 {
-                    let num_batches_to_process = plant.processing_progress.floor();
-                    let total_input_needed = input_amount_per_batch as f32 * num_batches_to_process;
-                    let current_input_available = *game_state.current_resources.get(&input_type).unwrap_or(&0.0);
-
-                    if current_input_available >= total_input_needed {
-                        *game_state.current_resources.entry(input_type).or_insert(0.0) -= total_input_needed;
-                        let total_output_produced = output_amount_per_batch as f32 * num_batches_to_process;
-                        *game_state.current_resources.entry(output_type).or_insert(0.0) += total_output_produced;
-
-                        plant.processing_progress -= num_batches_to_process;
-                    }
-                }
-            }
-        }
-    }
-}
-
-
-#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy, Serialize, Deserialize, PartialOrd, Ord)]
-pub enum ResourceType {
-    FerrocreteOre,
-    NutrientPaste,
-    CuprumDeposits,
-    Power,
-    ManufacturedGoods,
-    AdvancedComponents,
-    RefinedXylos,
-    ProcessedQuantium,
-    RawXylos,
-    RawQuantium,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum BuildingType {
-    Extractor,
-    BioDome,
-    PowerRelay,
-    StorageSilo,
-    ResearchInstitute,
-    Fabricator,
-    ProcessingPlant,
-}
-
-pub const ALL_BUILDING_TYPES: &[BuildingType] = &[
-    BuildingType::Extractor,
-    BuildingType::BioDome,
-    BuildingType::PowerRelay,
-    BuildingType::StorageSilo,
-    BuildingType::ResearchInstitute,
-    BuildingType::Fabricator,
-    BuildingType::ProcessingPlant,
-];
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum Tech {
-    BasicConstructionProtocols,
-    EfficientExtraction,
-    AdvancedFabrication,
-    IndustrialProcessing,
-    ZoningOrdinances,
-    ArcologyConstruction,
-}
-
-// --- Data-Driven Building Structs ---
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct ExtractorData {
-    pub id: String,
-    pub is_staffed: bool,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct BioDomeData {
-    pub id: String,
-    pub is_staffed: bool,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct PowerRelayData {
-    pub id: String,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct ResearchInstituteData {
-    pub id: String,
-    pub is_staffed: bool,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct StorageSiloData {
-    pub id: String,
-}
-
+// --- GameState Struct Definition ---
 #[derive(Resource, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct GameState {
@@ -535,128 +70,27 @@ pub struct GameState {
     pub legacy_structure: Option<LegacyStructure>,
     pub current_development_phase: DevelopmentPhase,
     pub current_resources: HashMap<ResourceType, f32>,
-    pub building_costs: HashMap<BuildingType, HashMap<ResourceType, f32>>,
     pub unlocked_techs: HashSet<Tech>,
     pub research_progress: Option<(Tech, f32)>,
     pub tech_costs: HashMap<Tech, u32>,
-    pub habitation_structures: Vec<HabitationStructure>,
     pub total_inhabitants: u32,
     pub assigned_workforce: u32,
     pub available_housing_capacity: u32,
     pub total_specialist_slots: u32,
     pub assigned_specialists_total: u32,
-    pub service_buildings: Vec<ServiceBuilding>,
-    pub zones: Vec<Zone>,
     pub civic_index: u32,
     pub colony_happiness: f32,
     pub simulated_has_sufficient_nutrient_paste: bool,
-    pub fabricators: Vec<FabricatorData>,
-    pub processing_plants: Vec<ProcessingPlantData>,
     pub unlocked_raw_materials: HashSet<ResourceType>,
     pub credits: f64,
     pub total_generated_power: f32,
     pub total_consumed_power: f32,
     pub notifications: VecDeque<NotificationEvent>,
-    
-    // New data-driven building lists
-    pub extractors: Vec<ExtractorData>,
-    pub bio_domes: Vec<BioDomeData>,
-    pub power_relays: Vec<PowerRelayData>,
-    pub research_institutes: Vec<ResearchInstituteData>,
-    pub storage_silos: Vec<StorageSiloData>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct NotificationEvent {
-    pub message: String,
-    pub timestamp: f64,
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-pub struct FabricatorTier {
-    pub name: String,
-    pub input_resources: HashMap<ResourceType, u32>,
-    pub output_product: ResourceType,
-    pub output_quantity: u32,
-    pub production_time_secs: f32,
-    pub power_requirement: u32,
-    pub specialist_requirement: u32,
-    pub construction_credits_cost: u32,
-    pub upkeep_cost: u32,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub struct FabricatorData {
-    pub id: String,
-    pub tier_index: usize,
-    pub available_tiers: Vec<FabricatorTier>,
-    pub assigned_specialists: u32,
-    pub is_active: bool,
-    pub production_progress_secs: f32,
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-pub struct ProcessingPlantTier {
-    pub name: String,
-    pub unlocks_resource: Option<ResourceType>,
-    pub input_resource: Option<(ResourceType, u32)>,
-    pub output_resource: Option<(ResourceType, u32)>,
-    pub processing_rate_per_sec: Option<f32>,
-    pub power_requirement: u32,
-    pub specialist_requirement: u32,
-    pub construction_credits_cost: u32,
-    pub upkeep_cost: u32,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub struct ProcessingPlantData {
-    pub id: String,
-    pub tier_index: usize,
-    pub available_tiers: Vec<ProcessingPlantTier>,
-    pub assigned_specialists: u32,
-    pub is_active: bool,
-    pub processing_progress: f32,
-}
-
-#[derive(Resource, Default, Clone, Copy, Serialize, Deserialize)]
-pub struct ColonyStats {
-    pub total_housing: u32,
-    pub total_jobs: u32,
-    pub happiness: f32,
-    pub credits: f64,
-    pub net_power: f32,
-    pub nutrient_paste: f32,
-}
-
-
-
-#[derive(Resource, Serialize, Deserialize, Clone)]
-pub struct ServiceCoverage {
-    pub coverage: HashMap<ServiceType, f32>,
-}
-
-impl Default for ServiceCoverage {
-    fn default() -> Self {
-        ServiceCoverage { coverage: HashMap::new() }
-    }
-}
-
-#[derive(Resource, Default, Serialize, Deserialize, Clone)]
-pub struct GraphData {
-    pub history: VecDeque<ColonyStats>,
+    pub buildings: Vec<Building>,
 }
 
 impl Default for GameState {
     fn default() -> Self {
-        let mut building_costs = HashMap::new();
-        building_costs.insert(BuildingType::Extractor, HashMap::from([(ResourceType::FerrocreteOre, 75.0)]));
-        building_costs.insert(BuildingType::BioDome, HashMap::from([(ResourceType::FerrocreteOre, 50.0)]));
-        building_costs.insert(BuildingType::PowerRelay, HashMap::from([(ResourceType::FerrocreteOre, 60.0)]));
-        building_costs.insert(BuildingType::StorageSilo, HashMap::from([(ResourceType::FerrocreteOre, 100.0)]));
-        building_costs.insert(BuildingType::ResearchInstitute, HashMap::from([(ResourceType::FerrocreteOre, 150.0)]));
-        building_costs.insert(BuildingType::Fabricator, HashMap::from([(ResourceType::FerrocreteOre, 200.0)]));
-        building_costs.insert(BuildingType::ProcessingPlant, HashMap::from([(ResourceType::FerrocreteOre, 180.0)]));
-
         let mut tech_costs = HashMap::new();
         tech_costs.insert(Tech::BasicConstructionProtocols, 100);
         tech_costs.insert(Tech::EfficientExtraction, 250);
@@ -664,7 +98,6 @@ impl Default for GameState {
         tech_costs.insert(Tech::IndustrialProcessing, 500);
         tech_costs.insert(Tech::ZoningOrdinances, 400);
         tech_costs.insert(Tech::ArcologyConstruction, 1000);
-
 
         let mut current_resources = HashMap::new();
         current_resources.insert(ResourceType::NutrientPaste, 50.0);
@@ -683,52 +116,118 @@ impl Default for GameState {
             legacy_structure: None,
             current_development_phase: DevelopmentPhase::default(),
             current_resources,
-            building_costs,
             unlocked_techs: HashSet::new(),
             research_progress: None,
             tech_costs,
-            habitation_structures: Vec::new(),
             total_inhabitants: 5,
             assigned_workforce: 0,
             available_housing_capacity: 0,
             total_specialist_slots: 0,
             assigned_specialists_total: 0,
-            service_buildings: Vec::new(),
-            zones: Vec::new(),
             civic_index: 0,
             colony_happiness: 50.0,
             simulated_has_sufficient_nutrient_paste: true,
-            fabricators: Vec::new(),
-            processing_plants: Vec::new(),
             unlocked_raw_materials: HashSet::new(),
             credits: 10000.0,
             total_generated_power: 0.0,
             total_consumed_power: 0.0,
             notifications: VecDeque::new(),
-            extractors: Vec::new(),
-            bio_domes: Vec::new(),
-            power_relays: Vec::new(),
-            research_institutes: Vec::new(),
-            storage_silos: Vec::new(),
+            buildings: Vec::new(),
         };
-
         Self::add_notification_internal(&mut new_state.notifications, "Colony established. Welcome, Commander!".to_string(), 0.0);
-        Self::add_notification_internal(&mut new_state.notifications, "Low power levels detected early in the simulation.".to_string(), 0.1);
-        Self::add_notification_internal(&mut new_state.notifications, "A strange signal was briefly detected from the nearby asteroid belt.".to_string(), 0.2);
-
         new_state
     }
 }
 
+pub fn toggle_building_active_state_by_id(game_state: &mut GameState, building_id: &str) {
+    let mut building_found = false;
+    let mut new_active_state = false;
+    let mut requires_civic_index_update = false;
+    let mut requires_job_slot_update = false;
+    let mut building_name_for_notification = "Building".to_string();
+
+
+    if let Some(building) = game_state.buildings.iter_mut().find(|b| b.id == building_id) {
+        building_found = true;
+        building.is_active = !building.is_active;
+        new_active_state = building.is_active;
+
+        building_name_for_notification = match &building.variant {
+            BuildingVariant::Extractor { available_tiers, .. } => available_tiers.get(building.current_tier_index).map_or_else(|| "Extractor".to_string(), |t| t.name.clone()),
+            BuildingVariant::BioDome { available_tiers, .. } => available_tiers.get(building.current_tier_index).map_or_else(|| "BioDome".to_string(), |t| t.name.clone()),
+            BuildingVariant::PowerRelay { .. } => "Power Relay".to_string(), // Simple name, no specific tier name needed for notification
+            BuildingVariant::ResearchInstitute { available_tiers, .. } => available_tiers.get(building.current_tier_index).map_or_else(|| "Research Institute".to_string(), |t| t.name.clone()),
+            BuildingVariant::StorageSilo { .. } => "Storage Silo".to_string(), // Simple name
+            BuildingVariant::Habitation { available_tiers, .. } => available_tiers.get(building.current_tier_index).map_or_else(|| "Habitation".to_string(), |t| t.name.clone()),
+            BuildingVariant::Service { available_tiers, service_type } => format!("{:?} {}", service_type, available_tiers.get(building.current_tier_index).map_or_else(|| "".to_string(), |t| t.name.clone())),
+            BuildingVariant::Zone { available_tiers, zone_type } => format!("{:?} {}", zone_type, available_tiers.get(building.current_tier_index).map_or_else(|| "".to_string(), |t| t.name.clone())),
+            BuildingVariant::Fabricator { available_tiers, .. } => available_tiers.get(building.current_tier_index).map_or_else(|| "Fabricator".to_string(), |t| t.name.clone()),
+            BuildingVariant::ProcessingPlant { available_tiers, .. } => available_tiers.get(building.current_tier_index).map_or_else(|| "Processing Plant".to_string(), |t| t.name.clone()),
+            // Admin Spire and Legacy Structures are not in the `buildings` Vec, so not handled here.
+            _ => "Building".to_string(),
+        };
+
+        // Determine if updates are needed based on building type
+        match &building.variant {
+            BuildingVariant::Service { .. } | BuildingVariant::Zone { .. } => {
+                requires_civic_index_update = true;
+                requires_job_slot_update = true;
+            }
+            BuildingVariant::Extractor { .. } |
+            BuildingVariant::BioDome { .. } |
+            BuildingVariant::ResearchInstitute { .. } |
+            BuildingVariant::Fabricator { .. } |
+            BuildingVariant::ProcessingPlant { .. } |
+            BuildingVariant::Habitation { .. } => { // Habitation provides specialist slots which are part of total_specialist_slots
+                requires_job_slot_update = true;
+            }
+            // PowerRelay and StorageSilo changes in active state don't directly affect civic index or job slots
+            // but might affect power calculation or storage capacity, handled elsewhere.
+            _ => {}
+        }
+    }
+
+    if building_found {
+        let status_message = if new_active_state { "activated" } else { "deactivated" };
+        add_notification(&mut game_state.notifications, format!("{} {} {}.", building_name_for_notification, building_id, status_message), 0.0);
+
+        if requires_civic_index_update {
+            update_civic_index(game_state);
+        }
+        if requires_job_slot_update {
+            // If a building is deactivated, its workforce should be unassigned.
+            // If it's activated, workforce can be assigned later.
+            // For simplicity here, we ensure assigned workforce is 0 if deactivated.
+            // More complex logic could remember assigned workforce for reactivation.
+            if !new_active_state {
+                 if let Some(building) = game_state.buildings.iter_mut().find(|b| b.id == building_id) {
+                    if building.assigned_workforce > 0 {
+                        game_state.assigned_specialists_total = game_state.assigned_specialists_total.saturating_sub(building.assigned_workforce);
+                        building.assigned_workforce = 0;
+                         add_notification(&mut game_state.notifications, format!("Workforce unassigned from deactivated {}.", building_name_for_notification), 0.0);
+                    }
+                 }
+            }
+            update_total_specialist_slots(game_state); // Recalculate total slots based on active buildings
+        }
+        // Note: Power update (total_generated_power, total_consumed_power) should be triggered globally
+        // if a PowerRelay or any power consumer/producer changes state. This function doesn't do it directly.
+    } else {
+        add_notification(&mut game_state.notifications, format!("Building ID {} not found for toggling active state.", building_id), 0.0);
+    }
+}
+
+// --- Notification System ---
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct NotificationEvent {
+    pub message: String,
+    pub timestamp: f64,
+}
+
 impl GameState {
     fn add_notification_internal(notifications_vec: &mut VecDeque<NotificationEvent>, message: String, timestamp: f64) {
-        notifications_vec.push_front(NotificationEvent {
-            message,
-            timestamp,
-        });
-        if notifications_vec.len() > 20 {
-            notifications_vec.pop_back();
-        }
+        notifications_vec.push_front(NotificationEvent { message, timestamp });
+        if notifications_vec.len() > 20 { notifications_vec.pop_back(); }
     }
 }
 
@@ -736,921 +235,57 @@ pub fn add_notification(notifications: &mut VecDeque<NotificationEvent>, message
     GameState::add_notification_internal(notifications, message, current_time_seconds);
 }
 
-pub fn get_fabricator_tiers() -> Vec<FabricatorTier> {
-    vec![
-        FabricatorTier {
-            name: "Basic Fabricator".to_string(),
-            input_resources: HashMap::from([
-                (ResourceType::FerrocreteOre, 2),
-                (ResourceType::CuprumDeposits, 1),
-            ]),
-            output_product: ResourceType::ManufacturedGoods,
-            output_quantity: 1,
-            production_time_secs: 10.0,
-            power_requirement: 15,
-            specialist_requirement: 1,
-            construction_credits_cost: 200,
-            upkeep_cost: 10,
-        },
-        FabricatorTier {
-            name: "Advanced Fabricator".to_string(),
-            input_resources: HashMap::from([
-                (ResourceType::ManufacturedGoods, 2),
-                (ResourceType::RefinedXylos, 1),
-            ]),
-            output_product: ResourceType::AdvancedComponents,
-            output_quantity: 1,
-            production_time_secs: 20.0,
-            power_requirement: 30,
-            specialist_requirement: 2,
-            construction_credits_cost: 500,
-            upkeep_cost: 25,
-        },
-    ]
-}
-
-fn check_fabricator_inputs(
-    current_resources: &HashMap<ResourceType, f32>,
-    fabricator_tier: &FabricatorTier
-) -> bool {
-    for (resource_type, required_amount) in &fabricator_tier.input_resources {
-        if current_resources.get(resource_type).unwrap_or(&0.0) < &(*required_amount as f32) {
-            return false;
-        }
-    }
-    true
-}
-
-
-pub fn add_fabricator(game_state: &mut GameState, tier_index: usize) {
-    let all_tiers = get_fabricator_tiers();
-    if tier_index >= all_tiers.len() {
-        println!("Error: Invalid tier index for fabricator.");
-        return;
-    }
-    let tier_info = &all_tiers[tier_index];
-    if game_state.credits < tier_info.construction_credits_cost as f64 {
-        add_notification(&mut game_state.notifications, format!("Not enough credits to build {}.", tier_info.name), 0.0);
-        return;
-    }
-    game_state.credits -= tier_info.construction_credits_cost as f64;
-    add_notification(&mut game_state.notifications, format!("Built {}.", tier_info.name), 0.0);
-
-    let new_fabricator = FabricatorData {
-        id: generate_unique_id(),
-        tier_index,
-        available_tiers: all_tiers.clone(),
-        assigned_specialists: 0,
-        is_active: false,
-        production_progress_secs: 0.0,
-    };
-    game_state.fabricators.push(new_fabricator);
-}
-
-pub fn upgrade_fabricator(game_state: &mut GameState, fabricator_id: &str) {
-    if let Some(fab) = game_state.fabricators.iter_mut().find(|f| f.id == fabricator_id) {
-        if fab.tier_index < fab.available_tiers.len() - 1 {
-            let next_tier_index = fab.tier_index + 1;
-            let next_tier_info = &fab.available_tiers[next_tier_index];
-            let upgrade_cost = next_tier_info.construction_credits_cost;
-
-            if game_state.credits < upgrade_cost as f64 {
-                println!("Not enough credits to upgrade Fabricator {} to {}. Required: {}, Available: {:.2}", fabricator_id, next_tier_info.name, upgrade_cost, game_state.credits);
-                return;
-            }
-            game_state.credits -= upgrade_cost as f64;
-            println!("Upgraded Fabricator {} to {} for {} credits. Remaining credits: {:.2}", fabricator_id, next_tier_info.name, upgrade_cost, game_state.credits);
-
-            fab.tier_index = next_tier_index;
-            fab.production_progress_secs = 0.0;
-
-            if fab.assigned_specialists > next_tier_info.specialist_requirement {
-                let to_unassign = fab.assigned_specialists - next_tier_info.specialist_requirement;
-                fab.assigned_specialists -= to_unassign;
-                game_state.assigned_specialists_total -= to_unassign;
-            }
-            println!("Upgraded Fabricator {} to {}", fabricator_id, next_tier_info.name);
-        } else {
-            println!("Fabricator {} is already at max tier.", fabricator_id);
-        }
-    } else {
-        println!("Fabricator with ID {} not found.", fabricator_id);
-    }
-}
-
-pub fn remove_fabricator(game_state: &mut GameState, fabricator_id: &str) {
-    if let Some(index) = game_state.fabricators.iter().position(|f| f.id == fabricator_id) {
-        let removed_fab = game_state.fabricators.remove(index);
-        game_state.assigned_specialists_total = game_state.assigned_specialists_total.saturating_sub(removed_fab.assigned_specialists);
-        println!("Removed Fabricator with ID {}", fabricator_id);
-    } else {
-        println!("Fabricator with ID {} not found for removal.", fabricator_id);
-    }
-}
-
-pub fn assign_specialists_to_fabricator(game_state: &mut GameState, fab_id: &str, num_to_assign: u32) {
-    if let Some(fab) = game_state.fabricators.iter_mut().find(|f| f.id == fab_id) {
-        if let Some(tier) = fab.available_tiers.get(fab.tier_index) {
-            let available_general_inhabitants = game_state.total_inhabitants.saturating_sub(game_state.assigned_specialists_total);
-            if available_general_inhabitants < num_to_assign {
-                println!("Not enough unassigned inhabitants for Fabricator {}.", fab_id); return;
-            }
-            if fab.assigned_specialists + num_to_assign > tier.specialist_requirement {
-                println!("Cannot assign more specialists than required for Fabricator {}. Max: {}", fab_id, tier.specialist_requirement); return;
-            }
-            fab.assigned_specialists += num_to_assign;
-            game_state.assigned_specialists_total += num_to_assign;
-            println!("Assigned {} specialists to Fabricator {}.", num_to_assign, fab_id);
-        }
-    } else {
-        println!("Fabricator {} not found.", fab_id);
-    }
-}
-
-pub fn unassign_specialists_from_fabricator(game_state: &mut GameState, fab_id: &str, num_to_unassign: u32) {
-    if let Some(fab) = game_state.fabricators.iter_mut().find(|f| f.id == fab_id) {
-        let actual_unassign = num_to_unassign.min(fab.assigned_specialists);
-        fab.assigned_specialists -= actual_unassign;
-        game_state.assigned_specialists_total -= actual_unassign;
-        fab.is_active = false;
-        fab.production_progress_secs = 0.0;
-        println!("Unassigned {} specialists from Fabricator {}.", actual_unassign, fab_id);
-    } else {
-        println!("Fabricator {} not found.", fab_id);
-    }
-}
-
-pub fn fabricator_production_system(game_state: &mut GameState, time_delta_secs: f32) {
-    for fab in game_state.fabricators.iter_mut() {
-        if let Some(tier) = fab.available_tiers.get(fab.tier_index) {
-            let has_power = *game_state.current_resources.get(&ResourceType::Power).unwrap_or(&0.0) >= tier.power_requirement as f32;
-            let has_specialists = fab.assigned_specialists >= tier.specialist_requirement;
-            let has_inputs = check_fabricator_inputs(&game_state.current_resources, tier);
-
-            fab.is_active = has_power && has_specialists && has_inputs;
-
-            if fab.is_active {
-                fab.production_progress_secs += time_delta_secs;
-                if fab.production_progress_secs >= tier.production_time_secs {
-                    for (resource_type, required_amount) in &tier.input_resources {
-                        *game_state.current_resources.entry(*resource_type).or_insert(0.0) -= *required_amount as f32;
-                    }
-                    *game_state.current_resources.entry(tier.output_product).or_insert(0.0) += tier.output_quantity as f32;
-                    // println!("Fabricator {} produced {} {} (total now: {}).", fab.id, tier.output_quantity, format!("{:?}", tier.output_product), game_state.current_resources.get(&tier.output_product).unwrap());
-                    fab.production_progress_secs = 0.0;
-                }
-            }
-        }
-    }
-}
-
-
-
-pub fn update_civic_index(game_state: &mut GameState) {
-    let mut new_civic_index = 0;
-    for service_building in &game_state.service_buildings {
-        if service_building.is_active {
-            if let Some(tier) = service_building.available_tiers.get(service_building.current_tier_index) {
-                new_civic_index += tier.civic_index_contribution;
-            }
-        }
-    }
-    for zone in &game_state.zones {
-        if zone.is_active {
-            if let Some(tier) = zone.available_tiers.get(zone.current_tier_index) {
-                new_civic_index += tier.civic_index_contribution;
-            }
-        }
-    }
-    game_state.civic_index = new_civic_index;
-}
-
+// --- ID Generation ---
 static NEXT_ID: AtomicU32 = AtomicU32::new(0);
-
-fn generate_unique_id() -> String {
+pub fn generate_unique_id() -> String {
     let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
     format!("struct_{}", id)
 }
 
-pub fn get_habitation_tiers() -> Vec<HabitationStructureTier> {
-    vec![
-        HabitationStructureTier {
-            name: "Basic Dwellings".to_string(),
-            housing_capacity: 10,
-            specialist_slots: 1,
-            construction_credits_cost: 100,
-            required_tech: None,
-        },
-        HabitationStructureTier {
-            name: "Community Blocks".to_string(),
-            housing_capacity: 25,
-            specialist_slots: 3,
-            construction_credits_cost: 250,
-            required_tech: None,
-        },
-        HabitationStructureTier {
-            name: "Arcology Spires".to_string(),
-            housing_capacity: 100,
-            specialist_slots: 10,
-            construction_credits_cost: 1000,
-            required_tech: Some(Tech::ArcologyConstruction),
-        },
-    ]
-}
+// --- Utility Structs for Stats and Graphing ---
+#[derive(Resource, Default, Clone, Copy, Serialize, Deserialize)]
+pub struct ColonyStats { pub total_housing: u32, pub total_jobs: u32, pub happiness: f32, pub credits: f64, pub net_power: f32, pub nutrient_paste: f32 }
 
-pub fn update_housing_and_specialist_slots(game_state: &mut GameState) {
-    let mut total_housing = 0;
-    let mut total_slots = 0;
-    for structure in &game_state.habitation_structures {
-        if let Some(tier) = structure.available_tiers.get(structure.tier_index) {
-            total_housing += tier.housing_capacity;
-            total_slots += tier.specialist_slots;
-        }
-    }
-    game_state.available_housing_capacity = total_housing;
-    game_state.total_specialist_slots = total_slots;
-}
+#[derive(Resource, Default, Serialize, Deserialize, Clone)]
+pub struct ServiceCoverage { pub coverage: HashMap<ServiceType, f32>, }
+#[derive(Resource, Default, Serialize, Deserialize, Clone)]
+pub struct GraphData { pub history: VecDeque<ColonyStats>, }
 
-pub fn add_habitation_structure(
-    game_state: &mut GameState,
-    tier_index: usize,
-    position: Option<(f32, f32)>,
-) {
-    let all_tiers = get_habitation_tiers();
-    if tier_index >= all_tiers.len() {
-        return;
-    }
-
-    let tier_info = &all_tiers[tier_index];
-    if game_state.credits < tier_info.construction_credits_cost as f64 {
-        add_notification(&mut game_state.notifications, format!("Not enough credits to build {}.", tier_info.name), 0.0);
-        return;
-    }
-    game_state.credits -= tier_info.construction_credits_cost as f64;
-    add_notification(&mut game_state.notifications, format!("Built {}.", tier_info.name), 0.0);
-
-    let new_structure = HabitationStructure {
-        id: generate_unique_id(),
-        tier_index,
-        available_tiers: all_tiers.clone(),
-        current_inhabitants: 0,
-        assigned_specialists: 0,
-        position,
-    };
-    game_state.habitation_structures.push(new_structure);
-    update_housing_and_specialist_slots(game_state);
-}
-
-pub fn upgrade_habitation_structure(game_state: &mut GameState, structure_id: &str) {
-    if let Some(structure) = game_state.habitation_structures.iter_mut().find(|s| s.id == structure_id) {
-        if structure.tier_index < structure.available_tiers.len() - 1 {
-            let next_tier_index = structure.tier_index + 1;
-            let next_tier_info = &structure.available_tiers[next_tier_index];
-
-            let upgrade_cost = next_tier_info.construction_credits_cost;
-
-            if game_state.credits < upgrade_cost as f64 {
-                println!("Not enough credits to upgrade Habitation Structure {} to {}. Required: {}, Available: {:.2}", structure_id, next_tier_info.name, upgrade_cost, game_state.credits);
-                return;
-            }
-            game_state.credits -= upgrade_cost as f64;
-            println!("Upgraded Habitation Structure {} to {} for {} credits. Remaining credits: {:.2}", structure_id, next_tier_info.name, upgrade_cost, game_state.credits);
-
-            structure.tier_index = next_tier_index;
-            update_housing_and_specialist_slots(game_state);
-        } else {
-            println!("Habitation Structure {} is already at max tier.", structure_id);
-        }
-    } else {
-        println!("Habitation Structure with ID {} not found.", structure_id);
-    }
-}
-
-pub fn remove_habitation_structure(game_state: &mut GameState, structure_id: &str) {
-    if let Some(index) = game_state.habitation_structures.iter().position(|s| s.id == structure_id) {
-        let removed_structure = game_state.habitation_structures.remove(index);
-        println!("Removed Habitation Structure with ID {}", structure_id);
-
-        update_housing_and_specialist_slots(game_state);
-
-        game_state.total_inhabitants = game_state.total_inhabitants.saturating_sub(removed_structure.current_inhabitants);
-        game_state.assigned_specialists_total = game_state.assigned_specialists_total.saturating_sub(removed_structure.assigned_specialists);
-
-    } else {
-        println!("Habitation Structure with ID {} not found for removal.", structure_id);
-        return;
-    }
-
-    if game_state.total_inhabitants > game_state.available_housing_capacity {
-        game_state.total_inhabitants = game_state.available_housing_capacity;
-    }
-    game_state.assigned_specialists_total = game_state.assigned_specialists_total.min(game_state.total_inhabitants).min(game_state.total_specialist_slots);
-}
-
-
-
-pub fn assign_specialists_to_structure(game_state: &mut GameState, structure_id: &str, num_to_assign: u32) {
-    if let Some(structure) = game_state.habitation_structures.iter_mut().find(|s| s.id == structure_id) {
-        if let Some(tier) = structure.available_tiers.get(structure.tier_index) {
-            let available_general_inhabitants = game_state.total_inhabitants.saturating_sub(game_state.assigned_specialists_total);
-            if available_general_inhabitants < num_to_assign {
-                println!("Not enough unassigned inhabitants to become specialists.");
-                return;
-            }
-            if structure.assigned_specialists + num_to_assign > tier.specialist_slots {
-                println!("Not enough specialist slots in this structure.");
-                return;
-            }
-            if structure.assigned_specialists + num_to_assign > structure.current_inhabitants {
-                 println!("Cannot assign more specialists than current inhabitants in the structure.");
-            }
-
-            structure.assigned_specialists += num_to_assign;
-            game_state.assigned_specialists_total += num_to_assign;
-            println!("Assigned {} specialists to structure {}. Total assigned: {}", num_to_assign, structure_id, game_state.assigned_specialists_total);
-        } else {
-            println!("Error: Structure {} tier data missing.", structure_id);
-        }
-    } else {
-        println!("Habitation Structure with ID {} not found.", structure_id);
-    }
-}
-
-pub fn unassign_specialists_from_structure(game_state: &mut GameState, structure_id: &str, num_to_unassign: u32) {
-    if let Some(structure) = game_state.habitation_structures.iter_mut().find(|s| s.id == structure_id) {
-        let actual_unassign = num_to_unassign.min(structure.assigned_specialists);
-        structure.assigned_specialists -= actual_unassign;
-        game_state.assigned_specialists_total -= actual_unassign;
-        println!("Unassigned {} specialists from structure {}. Total assigned: {}", actual_unassign, structure_id, game_state.assigned_specialists_total);
-    } else {
-        println!("Habitation Structure with ID {} not found.", structure_id);
-    }
-}
-
-pub fn get_service_building_tiers(service_type: ServiceType) -> Vec<ServiceBuildingTier> {
-    match service_type {
-        ServiceType::Wellness => vec![
-            ServiceBuildingTier { name: "Clinic".to_string(), specialist_requirement: 2, service_capacity: 50, service_radius: 50.0, upkeep_cost: 10, civic_index_contribution: 5, construction_credits_cost: 150, required_tech: None },
-            ServiceBuildingTier { name: "Hospital".to_string(), specialist_requirement: 5, service_capacity: 250, service_radius: 75.0, upkeep_cost: 30, civic_index_contribution: 15, construction_credits_cost: 400, required_tech: None },
-        ],
-        ServiceType::Security => vec![
-            ServiceBuildingTier { name: "Security Post".to_string(), specialist_requirement: 3, service_capacity: 50, service_radius: 50.0, upkeep_cost: 15, civic_index_contribution: 5, construction_credits_cost: 150, required_tech: None },
-            ServiceBuildingTier { name: "Precinct".to_string(), specialist_requirement: 7, service_capacity: 250, service_radius: 75.0, upkeep_cost: 40, civic_index_contribution: 15, construction_credits_cost: 450, required_tech: None },
-        ],
-        ServiceType::Education => vec![ ServiceBuildingTier { name: "School".to_string(), specialist_requirement: 4, service_capacity: 100, service_radius: 60.0, upkeep_cost: 25, civic_index_contribution: 10, construction_credits_cost: 300, required_tech: None } ],
-        ServiceType::Recreation => vec![ ServiceBuildingTier { name: "Rec Center".to_string(), specialist_requirement: 3, service_capacity: 100, service_radius: 60.0, upkeep_cost: 20, civic_index_contribution: 8, construction_credits_cost: 250, required_tech: None } ],
-        ServiceType::Spiritual => vec![ ServiceBuildingTier { name: "Sanctum".to_string(), specialist_requirement: 2, service_capacity: 100, service_radius: 60.0, upkeep_cost: 10, civic_index_contribution: 3, construction_credits_cost: 200, required_tech: None } ],
-    }
-}
-
-pub fn add_service_building(game_state: &mut GameState, service_type: ServiceType, tier_index: usize, position: Option<(f32, f32)>) {
-    let all_tiers = get_service_building_tiers(service_type);
-    if tier_index >= all_tiers.len() {
-        println!("Error: Invalid tier index for service building type {:?}.", service_type);
-        return;
-    }
-    let tier_info = &all_tiers[tier_index];
-    if game_state.credits < tier_info.construction_credits_cost as f64 {
-        add_notification(&mut game_state.notifications, format!("Not enough credits to build {:?} - {}.", service_type, tier_info.name), 0.0);
-        return;
-    }
-    game_state.credits -= tier_info.construction_credits_cost as f64;
-    add_notification(&mut game_state.notifications, format!("Built {:?} - {}.", service_type, tier_info.name), 0.0);
-
-    let new_building = ServiceBuilding {
-        id: generate_unique_id(),
-        service_type,
-        current_tier_index: tier_index,
-        available_tiers: all_tiers.clone(),
-        assigned_specialists: 0,
-        is_active: true,
-        position,
-    };
-    game_state.service_buildings.push(new_building);
-    update_civic_index(game_state);
-    // Removed the println! for "Added Service Building" as the "Built..." notification covers it.
-}
-
-pub fn upgrade_service_building(game_state: &mut GameState, building_id: &str) {
-    let mut upgraded = false;
-    if let Some(building) = game_state.service_buildings.iter_mut().find(|b| b.id == building_id) {
-        if building.current_tier_index < building.available_tiers.len() - 1 {
-            let next_tier_index = building.current_tier_index + 1;
-            let upgrade_cost = building.available_tiers[next_tier_index].construction_credits_cost;
-            let next_tier_name = building.available_tiers[next_tier_index].name.clone();
-            let specialist_requirement_next_tier = building.available_tiers[next_tier_index].specialist_requirement;
-
-            if game_state.credits < upgrade_cost as f64 {
-                println!("Not enough credits to upgrade Service Building {} to {}. Required: {}, Available: {:.2}", building_id, next_tier_name, upgrade_cost, game_state.credits);
-            } else {
-                game_state.credits -= upgrade_cost as f64;
-                println!("Upgraded Service Building {} to {} for {} credits. Remaining credits: {:.2}", building_id, next_tier_name, upgrade_cost, game_state.credits);
-
-                building.current_tier_index = next_tier_index;
-                if building.assigned_specialists > specialist_requirement_next_tier {
-                    let to_unassign = building.assigned_specialists - specialist_requirement_next_tier;
-                    building.assigned_specialists -= to_unassign;
-                    game_state.assigned_specialists_total = game_state.assigned_specialists_total.saturating_sub(to_unassign);
-                }
-                println!("Service Building {} successfully upgraded to: {}", building_id, next_tier_name);
-                upgraded = true;
-            }
-        } else {
-            println!("Service Building {} is already at max tier.", building_id);
-        }
-    } else {
-        println!("Service Building with ID {} not found.", building_id);
-    }
-
-    if upgraded {
-        update_civic_index(game_state);
-    }
-}
-
-pub fn remove_service_building(game_state: &mut GameState, building_id: &str) {
-    if let Some(index) = game_state.service_buildings.iter().position(|b| b.id == building_id) {
-        let removed_building = game_state.service_buildings.remove(index);
-        game_state.assigned_specialists_total = game_state.assigned_specialists_total.saturating_sub(removed_building.assigned_specialists);
-        update_civic_index(game_state);
-        println!("Removed Service Building with ID {}", building_id);
-    } else {
-        println!("Service Building with ID {} not found for removal.", building_id);
-    }
-}
-
-pub fn assign_specialists_to_service_building(game_state: &mut GameState, building_id: &str, num_to_assign: u32) {
-    if let Some(building) = game_state.service_buildings.iter_mut().find(|b| b.id == building_id) {
-        if let Some(tier) = building.available_tiers.get(building.current_tier_index) {
-            let available_general_inhabitants = game_state.total_inhabitants.saturating_sub(game_state.assigned_specialists_total);
-            if available_general_inhabitants < num_to_assign {
-                println!("Not enough unassigned inhabitants to become specialists for service building {}.", building_id);
-                return;
-            }
-            if building.assigned_specialists + num_to_assign > tier.specialist_requirement {
-                println!("Cannot assign more specialists than required for service building {}. Max: {}", building_id, tier.specialist_requirement);
-                return;
-            }
-            building.assigned_specialists += num_to_assign;
-            game_state.assigned_specialists_total += num_to_assign;
-            println!("Assigned {} specialists to service building {}. Total assigned globally: {}", num_to_assign, building_id, game_state.assigned_specialists_total);
-        }
-    } else {
-        println!("Service Building {} not found for specialist assignment.", building_id);
-    }
-}
-
-pub fn unassign_specialists_from_service_building(game_state: &mut GameState, building_id: &str, num_to_unassign: u32) {
-    if let Some(building) = game_state.service_buildings.iter_mut().find(|b| b.id == building_id) {
-        let actual_unassign = num_to_unassign.min(building.assigned_specialists);
-        building.assigned_specialists -= actual_unassign;
-        game_state.assigned_specialists_total -= actual_unassign;
-        println!("Unassigned {} specialists from service building {}. Total assigned globally: {}", actual_unassign, building_id, game_state.assigned_specialists_total);
-    } else {
-        println!("Service Building {} not found for specialist unassignment.", building_id);
-    }
-}
-
-pub fn get_zone_tiers(zone_type: ZoneType) -> Vec<ZoneTier> {
-    match zone_type {
-        ZoneType::Commercial => vec![
-            ZoneTier { name: "Small Market Stalls".to_string(), specialist_jobs_provided: 5, civic_index_contribution: 3, upkeep_cost: 10, construction_credits_cost: 100, income_generation: 50, required_tech: None },
-            ZoneTier { name: "Shopping Plaza".to_string(), specialist_jobs_provided: 15, civic_index_contribution: 10, upkeep_cost: 30, construction_credits_cost: 300, income_generation: 200, required_tech: Some(Tech::ZoningOrdinances) },
-        ],
-        ZoneType::LightIndustry => vec![
-            ZoneTier { name: "Workshops".to_string(), specialist_jobs_provided: 8, civic_index_contribution: 2, upkeep_cost: 15, construction_credits_cost: 120, income_generation: 0, required_tech: None },
-            ZoneTier { name: "Assembly Lines".to_string(), specialist_jobs_provided: 20, civic_index_contribution: 8, upkeep_cost: 40, construction_credits_cost: 350, income_generation: 0, required_tech: Some(Tech::ZoningOrdinances) },
-        ],
-    }
-}
-
-pub fn add_zone(game_state: &mut GameState, zone_type: ZoneType, tier_index: usize) {
-    let all_tiers = get_zone_tiers(zone_type);
-    if tier_index >= all_tiers.len() {
-        // This case should ideally be prevented by UI, but good to have a log.
-        // No user-facing notification for this internal error.
-        println!("Error: Invalid tier index for zone type {:?}.", zone_type);
-        return;
-    }
-    let tier_info = &all_tiers[tier_index];
-    if game_state.credits < tier_info.construction_credits_cost as f64 {
-        add_notification(&mut game_state.notifications, format!("Not enough credits to build {:?} - {}.", zone_type, tier_info.name), 0.0);
-        return;
-    }
-    game_state.credits -= tier_info.construction_credits_cost as f64;
-    add_notification(&mut game_state.notifications, format!("Constructed Zone: {:?} - {}.", zone_type, tier_info.name), 0.0);
-
-    let new_zone = Zone {
-        id: generate_unique_id(),
-        zone_type,
-        current_tier_index: tier_index,
-        available_tiers: all_tiers.clone(),
-        assigned_specialists: 0,
-        is_active: true,
-    };
-    game_state.zones.push(new_zone);
-    update_total_specialist_slots(game_state);
-    update_civic_index(game_state);
-    // Removed "Added Zone..." println as it's covered by "Constructed Zone..."
-}
-
-pub fn upgrade_zone(game_state: &mut GameState, zone_id: &str) {
-    let mut upgraded = false;
-    if let Some(zone) = game_state.zones.iter_mut().find(|z| z.id == zone_id) {
-        if zone.current_tier_index < zone.available_tiers.len() - 1 {
-            let next_tier_index = zone.current_tier_index + 1;
-            let next_tier_info = &zone.available_tiers[next_tier_index];
-
-            let upgrade_cost = next_tier_info.construction_credits_cost;
-
-            if game_state.credits < upgrade_cost as f64 {
-                add_notification(&mut game_state.notifications, format!("Not enough credits to upgrade Zone {} to {}. Required: {}, Available: {:.2}", zone_id, next_tier_info.name, upgrade_cost, game_state.credits), 0.0);
-                return;
-            }
-            game_state.credits -= upgrade_cost as f64;
-            // The following println about credits is more of a debug log, notification will be for success.
-            // println!("Upgraded Zone {} to {} for {} credits. Remaining credits: {:.2}", zone_id, next_tier_info.name, upgrade_cost, game_state.credits);
-
-            zone.current_tier_index = next_tier_index;
-            if zone.assigned_specialists > next_tier_info.specialist_jobs_provided {
-                let to_unassign = zone.assigned_specialists - next_tier_info.specialist_jobs_provided;
-                zone.assigned_specialists -= to_unassign;
-                game_state.assigned_specialists_total = game_state.assigned_specialists_total.saturating_sub(to_unassign);
-            }
-            add_notification(&mut game_state.notifications, format!("Zone {} successfully upgraded to: {}.", zone_id, next_tier_info.name), 0.0);
-            upgraded = true;
-        } else {
-            add_notification(&mut game_state.notifications, format!("Zone {} is already at max tier.", zone_id), 0.0);
-        }
-    } else {
-        add_notification(&mut game_state.notifications, format!("Zone with ID {} not found for upgrade.", zone_id), 0.0);
-    }
-
-    if upgraded {
-        update_total_specialist_slots(game_state);
-        update_civic_index(game_state);
-    }
-}
-
-pub fn remove_zone(game_state: &mut GameState, zone_id: &str) {
-    if let Some(index) = game_state.zones.iter().position(|z| z.id == zone_id) {
-        let removed_zone = game_state.zones.remove(index);
-        game_state.assigned_specialists_total = game_state.assigned_specialists_total.saturating_sub(removed_zone.assigned_specialists);
-        update_total_specialist_slots(game_state);
-        update_civic_index(game_state);
-        add_notification(&mut game_state.notifications, format!("Removed Zone with ID {}.", zone_id), 0.0);
-    } else {
-        add_notification(&mut game_state.notifications, format!("Zone with ID {} not found for removal.", zone_id), 0.0);
-    }
-}
-
-pub fn assign_specialists_to_zone(game_state: &mut GameState, zone_id: &str, num_to_assign: u32) {
-    if let Some(zone) = game_state.zones.iter_mut().find(|z| z.id == zone_id) {
-        if let Some(tier) = zone.available_tiers.get(zone.current_tier_index) {
-            let available_general_inhabitants = game_state.total_inhabitants.saturating_sub(game_state.assigned_specialists_total);
-            if available_general_inhabitants < num_to_assign {
-                add_notification(&mut game_state.notifications, format!("Not enough unassigned inhabitants to become specialists for zone {}.", zone_id), 0.0);
-                return;
-            }
-            if zone.assigned_specialists + num_to_assign > tier.specialist_jobs_provided {
-                add_notification(&mut game_state.notifications, format!("Cannot assign more specialists than available jobs in zone {}. Max: {}", zone_id, tier.specialist_jobs_provided), 0.0);
-                return;
-            }
-            zone.assigned_specialists += num_to_assign;
-            game_state.assigned_specialists_total += num_to_assign;
-            add_notification(&mut game_state.notifications, format!("Assigned {} specialists to zone {}.", num_to_assign, zone_id), 0.0);
-        }
-    } else {
-        add_notification(&mut game_state.notifications, format!("Zone {} not found for specialist assignment.", zone_id), 0.0);
-    }
-}
-
-pub fn unassign_specialists_from_zone(game_state: &mut GameState, zone_id: &str, num_to_unassign: u32) {
-    if let Some(zone) = game_state.zones.iter_mut().find(|z| z.id == zone_id) {
-        let actual_unassign = num_to_unassign.min(zone.assigned_specialists);
-        if actual_unassign > 0 { // Only notify if an actual unassignment happens
-            zone.assigned_specialists -= actual_unassign;
-            game_state.assigned_specialists_total -= actual_unassign;
-            add_notification(&mut game_state.notifications, format!("Unassigned {} specialists from zone {}.", actual_unassign, zone_id), 0.0);
-        }
-        // No notification if trying to unassign from 0, or unassigning 0.
-    } else {
-        add_notification(&mut game_state.notifications, format!("Zone {} not found for specialist unassignment.", zone_id), 0.0);
-    }
-}
-
-pub fn update_total_specialist_slots(game_state: &mut GameState) {
-    let mut total_slots = 0;
-    for structure in &game_state.habitation_structures {
-        if let Some(tier) = structure.available_tiers.get(structure.tier_index) {
-            total_slots += tier.specialist_slots;
-        }
-    }
-    for zone in &game_state.zones {
-        if zone.is_active {
-            if let Some(tier) = zone.available_tiers.get(zone.current_tier_index) {
-                total_slots += tier.specialist_jobs_provided;
-            }
-        }
-    }
-    game_state.total_specialist_slots = total_slots;
-}
-
+// --- Game Logic Plugin (systems heavily commented out) ---
 pub struct GameLogicPlugin;
-
 impl Plugin for GameLogicPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<GameState>()
-            .init_resource::<PopulationResource>()
-            .init_resource::<HappinessResource>()
             .init_resource::<ServiceCoverage>()
             .init_resource::<ColonyStats>()
             .init_resource::<GraphData>()
             .add_event::<SaveGameEvent>()
             .add_event::<LoadGameEvent>()
-            .add_systems(
-                FixedUpdate,
-                (
-                    workforce_assignment_system,
-                    game_tick_system.after(workforce_assignment_system),
-                    research_system,
-                    population_growth_system.after(game_tick_system),
-                    fabricator_production_tick_system.after(game_tick_system),
-                    processing_plant_operations_tick_system.after(game_tick_system),
-                    upkeep_income_tick_system.after(processing_plant_operations_tick_system),
-                    service_coverage_system.after(upkeep_income_tick_system),
-                    happiness_system.after(service_coverage_system),
-                    update_colony_stats_system.after(happiness_system),
-                    update_graph_data_system.after(update_colony_stats_system),
-                ),
-            )
+            // .add_systems( FixedUpdate, ( /* ... systems ... */ ) )
             .add_systems(Update, (save_game_system, load_game_system));
     }
 }
 
-fn generate_income_system(game_state: &mut GameState) {
-    let mut total_income_this_period = 0.0;
-
-    for zone in &game_state.zones {
-        if zone.is_active && zone.zone_type == ZoneType::Commercial {
-            if let Some(tier) = zone.available_tiers.get(zone.current_tier_index) {
-                total_income_this_period += tier.income_generation as f64;
-            }
-        }
-    }
-
-    if let Some(structure) = &game_state.legacy_structure {
-        if let Some(tier) = structure.available_tiers.get(structure.current_tier_index) {
-            total_income_this_period += tier.income_bonus;
-        }
-    }
-
-    if total_income_this_period > 0.0 {
-        game_state.credits += total_income_this_period;
-    }
-}
-
-fn deduct_upkeep_system(game_state: &mut GameState) {
-    let mut total_upkeep_to_deduct_this_tick = 0.0;
-    let mut civic_index_needs_update = false;
-
-    let initial_credits = game_state.credits;
-
-    let mut potential_total_upkeep = 0.0;
-    for building in &game_state.service_buildings { if building.is_active { if let Some(tier) = building.available_tiers.get(building.current_tier_index) { potential_total_upkeep += tier.upkeep_cost as f64; } } }
-    for zone in &game_state.zones { if zone.is_active { if let Some(tier) = zone.available_tiers.get(zone.current_tier_index) { potential_total_upkeep += tier.upkeep_cost as f64; } } }
-    for fab in &game_state.fabricators { if fab.is_active { if let Some(tier) = fab.available_tiers.get(fab.tier_index) { potential_total_upkeep += tier.upkeep_cost as f64; } } }
-    for plant in &game_state.processing_plants { if plant.is_active { if let Some(tier) = plant.available_tiers.get(plant.tier_index) { potential_total_upkeep += tier.upkeep_cost as f64; } } }
-
-    if initial_credits >= potential_total_upkeep {
-        total_upkeep_to_deduct_this_tick = potential_total_upkeep;
-    } else {
-        println!("Warning: Insufficient credits ({:.2}) to cover all upkeep ({:.2}). Deactivating buildings.", initial_credits, potential_total_upkeep);
-
-        for fab in game_state.fabricators.iter_mut() {
-            if fab.is_active { if let Some(tier) = fab.available_tiers.get(fab.tier_index) {
-                if initial_credits < (total_upkeep_to_deduct_this_tick + tier.upkeep_cost as f64) { fab.is_active = false; println!("Deactivated Fabricator {}", fab.id); }
-                else { total_upkeep_to_deduct_this_tick += tier.upkeep_cost as f64;}
-            }}
-        }
-        for plant in game_state.processing_plants.iter_mut() {
-            if plant.is_active { if let Some(tier) = plant.available_tiers.get(plant.tier_index) {
-                if initial_credits < (total_upkeep_to_deduct_this_tick + tier.upkeep_cost as f64) { plant.is_active = false; println!("Deactivated Processing Plant {}", plant.id); }
-                else { total_upkeep_to_deduct_this_tick += tier.upkeep_cost as f64; }
-            }}
-        }
-        for zone in game_state.zones.iter_mut() {
-            if zone.is_active { if let Some(tier) = zone.available_tiers.get(zone.current_tier_index) {
-                if initial_credits < (total_upkeep_to_deduct_this_tick + tier.upkeep_cost as f64) { zone.is_active = false; civic_index_needs_update = true; println!("Deactivated Zone {}", zone.id); }
-                else { total_upkeep_to_deduct_this_tick += tier.upkeep_cost as f64; }
-            }}
-        }
-        for building in game_state.service_buildings.iter_mut() {
-            if building.is_active { if let Some(tier) = building.available_tiers.get(building.current_tier_index) {
-                if initial_credits < (total_upkeep_to_deduct_this_tick + tier.upkeep_cost as f64) { building.is_active = false; civic_index_needs_update = true; println!("Deactivated Service Building {}", building.id); }
-                else { total_upkeep_to_deduct_this_tick += tier.upkeep_cost as f64; }
-            }}
-        }
-    }
-
-    if total_upkeep_to_deduct_this_tick > 0.0 {
-        game_state.credits -= total_upkeep_to_deduct_this_tick;
-        if game_state.credits < 0.0 {
-            println!("Critical Warning: Credits still went negative ({:.2}) after deactivations!", game_state.credits);
-            game_state.credits = 0.0;
-        }
-    }
-
-    if civic_index_needs_update {
-        update_civic_index(game_state);
-    }
-}
-
-fn upkeep_income_tick_system(mut game_state: ResMut<GameState>) {
-    generate_income_system(&mut game_state);
-    deduct_upkeep_system(&mut game_state);
-}
-
-fn processing_plant_operations_tick_system(mut game_state: ResMut<GameState>, time: Res<Time>) {
-    processing_plant_operations_system(&mut game_state, time.delta_seconds());
-}
-
-fn fabricator_production_tick_system(mut game_state: ResMut<GameState>, time: Res<Time>) {
-    fabricator_production_system(&mut game_state, time.delta_seconds());
-}
-
-
-
-// CORRECTED: This function is refactored to avoid borrow checker errors.
-fn workforce_assignment_system(mut game_state: ResMut<GameState>) {
-    // 1. Calculate total demand without holding mutable borrows
-    let extractor_demand = game_state.extractors.len() as u32 * 5;
-    let biodome_demand = game_state.bio_domes.len() as u32 * 10;
-    let research_demand = game_state.research_institutes.len() as u32 * 15;
-    let total_demand = extractor_demand + biodome_demand + research_demand;
-
-    // 2. Determine available workforce and update the total in GameState
-    let mut available_workforce = game_state.total_inhabitants.min(total_demand);
-    game_state.assigned_workforce = available_workforce;
-
-    // 3. Greedily assign workforce and update buildings one by one
-    // This avoids borrowing multiple fields of game_state mutably at the same time.
-    for extractor in &mut game_state.extractors {
-        if available_workforce >= 5 {
-            extractor.is_staffed = true;
-            available_workforce -= 5;
-        } else {
-            extractor.is_staffed = false;
-        }
-    }
-
-    for dome in &mut game_state.bio_domes {
-        if available_workforce >= 10 {
-            dome.is_staffed = true;
-            available_workforce -= 10;
-        } else {
-            dome.is_staffed = false;
-        }
-    }
-
-    for institute in &mut game_state.research_institutes {
-        if available_workforce >= 15 {
-            institute.is_staffed = true;
-            available_workforce -= 15;
-        } else {
-            institute.is_staffed = false;
-        }
-    }
-}
-
-
-// CORRECTED: This function is refactored to avoid borrow checker errors.
-fn game_tick_system(mut game_state: ResMut<GameState>) {
-    // --- Power Calculation ---
-    let total_power_generation: u32 = game_state.power_relays.len() as u32 * 50;
-
-    let mut total_power_consumption: u32 = 0;
-    total_power_consumption += game_state.extractors.iter().filter(|e| e.is_staffed).count() as u32 * 15;
-    total_power_consumption += game_state.bio_domes.iter().filter(|b| b.is_staffed).count() as u32 * 10;
-    total_power_consumption += game_state.research_institutes.iter().filter(|ri| ri.is_staffed).count() as u32 * 5;
-
-    // Power for administrative spire
-    if let Some(spire) = &game_state.administrative_spire {
-        if let Some(tier) = spire.available_tiers.get(spire.current_tier_index) {
-            total_power_consumption += tier.power_requirement;
-        }
-    }
-
-    // Power for active fabricators and plants
-    for fab_data in &game_state.fabricators {
-        if fab_data.is_active {
-            if let Some(tier) = fab_data.available_tiers.get(fab_data.tier_index) {
-                total_power_consumption += tier.power_requirement;
-            }
-        }
-    }
-    for plant_data in &game_state.processing_plants {
-        if plant_data.is_active {
-            if let Some(tier) = plant_data.available_tiers.get(plant_data.tier_index) {
-                total_power_consumption += tier.power_requirement;
-            }
-        }
-    }
-
-    let net_power = total_power_generation as f32 - total_power_consumption as f32;
-    game_state.total_generated_power = total_power_generation as f32;
-    game_state.total_consumed_power = total_power_consumption as f32;
-
-    // Determine if there's a power deficit that needs to be covered by stored power
-    let power_deficit = if net_power < 0.0 { -net_power } else { 0.0 };
-    let stored_power = game_state.current_resources.entry(ResourceType::Power).or_insert(0.0);
-
-    let has_sufficient_power = if net_power >= 0.0 {
-        *stored_power += net_power; // Add surplus to storage
-        true
-    } else {
-        if *stored_power >= power_deficit {
-            *stored_power -= power_deficit; // Cover deficit from storage
-            true
-        } else {
-            *stored_power = 0.0; // Drain all stored power
-            false // Power outage!
-        }
-    };
-
-    // --- Resource Production (only if powered) ---
-    if has_sufficient_power {
-        // First, count the number of staffed buildings to release immutable borrows.
-        let staffed_bio_domes = game_state.bio_domes.iter().filter(|d| d.is_staffed).count() as f32;
-        let staffed_extractors = game_state.extractors.iter().filter(|e| e.is_staffed).count() as f32;
-
-        let capacity: u32 = game_state.storage_silos.len() as u32 * 500;
-        let total_capacity = 1000 + capacity; // Base capacity + silo capacity
-
-        // Now, update resources without holding the previous borrows.
-        let nutrient_paste_amount = game_state.current_resources.entry(ResourceType::NutrientPaste).or_insert(0.0);
-        *nutrient_paste_amount = (*nutrient_paste_amount + 5.0 * staffed_bio_domes).min(total_capacity as f32);
-
-        let ferrocrete_ore_amount = game_state.current_resources.entry(ResourceType::FerrocreteOre).or_insert(0.0);
-        *ferrocrete_ore_amount = (*ferrocrete_ore_amount + 2.5 * staffed_extractors).min(total_capacity as f32);
-    }
-
-    // Update food status for happiness calculation
-    game_state.simulated_has_sufficient_nutrient_paste = game_state.current_resources.get(&ResourceType::NutrientPaste).unwrap_or(&0.0) > &0.0;
-}
-
-
-fn update_colony_stats_system(mut stats: ResMut<ColonyStats>, game_state: Res<GameState>) {
-    stats.total_housing = game_state.available_housing_capacity;
-    stats.total_jobs = game_state.assigned_workforce;
-    stats.happiness = game_state.colony_happiness;
-    stats.credits = game_state.credits;
-    stats.net_power = game_state.total_generated_power - game_state.total_consumed_power;
-    stats.nutrient_paste = *game_state.current_resources.get(&ResourceType::NutrientPaste).unwrap_or(&0.0);
-}
-
-
-
-fn update_graph_data_system(stats: Res<ColonyStats>, mut graph_data: ResMut<GraphData>) {
-    graph_data.history.push_front(*stats);
-    if graph_data.history.len() > 200 {
-        graph_data.history.pop_back();
-    }
-}
-
-// --- Save/Load Logic ---
+// --- Save/Load Logic (kept for now) ---
 #[derive(Event)]
 pub struct SaveGameEvent;
-
 #[derive(Event)]
 pub struct LoadGameEvent;
-
 const SAVE_PATH: &str = "save.json";
 
-fn save_game_system(
-    game_state: Res<GameState>,
-    mut save_event_reader: EventReader<SaveGameEvent>,
-) {
+fn save_game_system(game_state: Res<GameState>, mut save_event_reader: EventReader<SaveGameEvent>) {
     if save_event_reader.read().last().is_some() {
         match File::create(SAVE_PATH) {
             Ok(mut file) => {
                 let state_json = serde_json::to_string_pretty(&*game_state).unwrap();
-                if let Err(e) = file.write_all(state_json.as_bytes()) {
-                    println!("Error writing to save file: {}", e);
-                } else {
-                    add_notification(&mut game_state.clone().notifications, "Game Saved.".to_string(), 0.0);
-                }
+                if let Err(e) = file.write_all(state_json.as_bytes()) { println!("Error writing to save file: {}", e); }
+                else { println!("Game Saved."); }
             }
-            Err(e) => {
-                println!("Error creating save file: {}", e);
-            }
+            Err(e) => { println!("Error creating save file: {}", e); }
         }
     }
 }
-
-fn load_game_system(
-    mut commands: Commands,
-    mut load_event_reader: EventReader<LoadGameEvent>,
-) {
+fn load_game_system(mut commands: Commands, mut load_event_reader: EventReader<LoadGameEvent>) {
     if load_event_reader.read().last().is_some() {
         match File::open(SAVE_PATH) {
             Ok(mut file) => {
@@ -1671,19 +306,779 @@ fn load_game_system(
     }
 }
 
-// --- New Data-Driven Construction ---
-pub fn add_extractor(game_state: &mut GameState) {
-    game_state.extractors.push(ExtractorData { id: generate_unique_id(), is_staffed: false });
+// --- Placeholder for functions and systems to be added back ---
+
+// --- Habitation Structure Functions ---
+pub fn get_new_habitation_tiers() -> Vec<HabitationTier> {
+    vec![
+        HabitationTier {
+            name: "Basic Dwellings".to_string(),
+            construction_credits_cost: 100,
+            upkeep_cost: 5,
+            power_requirement: 2,
+            workforce_requirement: 1, // Maintenance staff
+            required_tech: None,
+            housing_capacity: 10,
+            specialist_slots: 1,
+        },
+        HabitationTier {
+            name: "Community Blocks".to_string(),
+            construction_credits_cost: 250,
+            upkeep_cost: 10,
+            power_requirement: 5,
+            workforce_requirement: 2,
+            required_tech: None,
+            housing_capacity: 25,
+            specialist_slots: 3,
+        },
+        HabitationTier {
+            name: "Arcology Spires".to_string(),
+            construction_credits_cost: 1000,
+            upkeep_cost: 25,
+            power_requirement: 10,
+            workforce_requirement: 5,
+            required_tech: Some(Tech::ArcologyConstruction),
+            housing_capacity: 100,
+            specialist_slots: 10,
+        },
+    ]
 }
-pub fn add_bio_dome(game_state: &mut GameState) {
-    game_state.bio_domes.push(BioDomeData { id: generate_unique_id(), is_staffed: false });
+
+pub fn add_habitation_structure(
+    game_state: &mut GameState,
+    tier_index: usize,
+    position: Option<(f32, f32)>,
+) {
+    let all_available_tiers = get_new_habitation_tiers();
+    if tier_index >= all_available_tiers.len() {
+        println!("Error: Invalid tier index {} for habitation structure.", tier_index);
+        return;
+    }
+
+    let tier_info = &all_available_tiers[tier_index];
+
+    if game_state.credits < tier_info.construction_credits_cost as f64 {
+        add_notification(
+            &mut game_state.notifications,
+            format!("Not enough credits to build {}.", tier_info.name),
+            0.0,
+        );
+        return;
+    }
+    game_state.credits -= tier_info.construction_credits_cost as f64;
+    add_notification(
+        &mut game_state.notifications,
+        format!("Built {}.", tier_info.name),
+        0.0,
+    );
+
+    let new_building = Building {
+        id: generate_unique_id(),
+        variant: BuildingVariant::Habitation {
+            current_inhabitants: 0,
+            available_tiers: all_available_tiers,
+        },
+        position,
+        current_tier_index: tier_index,
+        is_active: true,
+        assigned_workforce: 0,
+    };
+    game_state.buildings.push(new_building);
+    update_housing_and_specialist_slots(game_state);
 }
-pub fn add_power_relay(game_state: &mut GameState) {
-    game_state.power_relays.push(PowerRelayData { id: generate_unique_id() });
+
+// --- Service Building Functions ---
+pub fn get_new_service_tiers(service_type: ServiceType) -> Vec<ServiceTier> {
+    match service_type {
+        ServiceType::Wellness => vec![
+            ServiceTier { name: "Clinic".to_string(), construction_credits_cost: 150, upkeep_cost: 10, power_requirement: 5, workforce_requirement: 2, required_tech: None, service_capacity: 50, service_radius: 50.0, civic_index_contribution: 5, },
+            ServiceTier { name: "Hospital".to_string(), construction_credits_cost: 400, upkeep_cost: 30, power_requirement: 15, workforce_requirement: 5, required_tech: None, service_capacity: 250, service_radius: 75.0, civic_index_contribution: 15, },
+        ],
+        ServiceType::Security => vec![
+            ServiceTier { name: "Security Post".to_string(), construction_credits_cost: 150, upkeep_cost: 15, power_requirement: 5, workforce_requirement: 3, required_tech: None, service_capacity: 50, service_radius: 50.0, civic_index_contribution: 5, },
+            ServiceTier { name: "Precinct".to_string(), construction_credits_cost: 450, upkeep_cost: 40, power_requirement: 10, workforce_requirement: 7, required_tech: None, service_capacity: 250, service_radius: 75.0, civic_index_contribution: 15, },
+        ],
+        ServiceType::Education => vec![ServiceTier { name: "School".to_string(), construction_credits_cost: 300, upkeep_cost: 25, power_requirement: 8, workforce_requirement: 4, required_tech: None, service_capacity: 100, service_radius: 60.0, civic_index_contribution: 10, }],
+        ServiceType::Recreation => vec![ServiceTier { name: "Rec Center".to_string(), construction_credits_cost: 250, upkeep_cost: 20, power_requirement: 7, workforce_requirement: 3, required_tech: None, service_capacity: 100, service_radius: 60.0, civic_index_contribution: 8, }],
+        ServiceType::Spiritual => vec![ServiceTier { name: "Sanctum".to_string(), construction_credits_cost: 200, upkeep_cost: 10, power_requirement: 3, workforce_requirement: 2, required_tech: None, service_capacity: 100, service_radius: 60.0, civic_index_contribution: 3, }],
+    }
 }
-pub fn add_research_institute(game_state: &mut GameState) {
-    game_state.research_institutes.push(ResearchInstituteData { id: generate_unique_id(), is_staffed: false });
+
+pub fn add_service_building( game_state: &mut GameState, service_type: ServiceType, tier_index: usize, position: Option<(f32, f32)>) {
+    let all_available_tiers = get_new_service_tiers(service_type);
+    if tier_index >= all_available_tiers.len() { println!("Error: Invalid tier index {} for service building type {:?}.", tier_index, service_type); return; }
+    let tier_info = &all_available_tiers[tier_index];
+    if game_state.credits < tier_info.construction_credits_cost as f64 { add_notification( &mut game_state.notifications, format!("Not enough credits to build {:?} - {}.", service_type, tier_info.name), 0.0); return; }
+    game_state.credits -= tier_info.construction_credits_cost as f64;
+    add_notification( &mut game_state.notifications, format!("Built {:?} - {}.", service_type, tier_info.name), 0.0);
+    let new_building = Building {
+        id: generate_unique_id(),
+        variant: BuildingVariant::Service { service_type, available_tiers: all_available_tiers },
+        position, current_tier_index: tier_index, is_active: false, assigned_workforce: 0,
+    };
+    game_state.buildings.push(new_building);
+    update_civic_index(game_state);
+    update_total_specialist_slots(game_state);
 }
-pub fn add_storage_silo(game_state: &mut GameState) {
-    game_state.storage_silos.push(StorageSiloData { id: generate_unique_id() });
+
+// --- Zone Functions ---
+pub fn get_new_zone_tiers(zone_type: ZoneType) -> Vec<ZoneTier> {
+    match zone_type {
+        ZoneType::Commercial => vec![
+            ZoneTier { name: "Small Market Stalls".to_string(), construction_credits_cost: 100, upkeep_cost: 10, power_requirement: 3, workforce_requirement: 5, required_tech: None, civic_index_contribution: 3, income_generation: 50, },
+            ZoneTier { name: "Shopping Plaza".to_string(), construction_credits_cost: 300, upkeep_cost: 30, power_requirement: 8, workforce_requirement: 15, required_tech: Some(Tech::ZoningOrdinances), civic_index_contribution: 10, income_generation: 200, },
+        ],
+        ZoneType::LightIndustry => vec![
+            ZoneTier { name: "Workshops".to_string(), construction_credits_cost: 120, upkeep_cost: 15, power_requirement: 5, workforce_requirement: 8, required_tech: None, civic_index_contribution: 2, income_generation: 0, },
+            ZoneTier { name: "Assembly Lines".to_string(), construction_credits_cost: 350, upkeep_cost: 40, power_requirement: 12, workforce_requirement: 20, required_tech: Some(Tech::ZoningOrdinances), civic_index_contribution: 8, income_generation: 0, },
+        ],
+    }
 }
+
+pub fn add_zone( game_state: &mut GameState, zone_type: ZoneType, tier_index: usize, position: Option<(f32,f32)> ) {
+    let all_available_tiers = get_new_zone_tiers(zone_type);
+    if tier_index >= all_available_tiers.len() { println!("Error: Invalid tier index {} for zone type {:?}.", tier_index, zone_type); return; }
+    let tier_info = &all_available_tiers[tier_index];
+    if game_state.credits < tier_info.construction_credits_cost as f64 { add_notification( &mut game_state.notifications, format!("Not enough credits to build {:?} - {}.", zone_type, tier_info.name),0.0); return; }
+    game_state.credits -= tier_info.construction_credits_cost as f64;
+    add_notification( &mut game_state.notifications, format!("Constructed Zone: {:?} - {}.", zone_type, tier_info.name), 0.0);
+    let new_building = Building {
+        id: generate_unique_id(),
+        variant: BuildingVariant::Zone { zone_type, available_tiers: all_available_tiers },
+        position, current_tier_index: tier_index, is_active: false, assigned_workforce: 0,
+    };
+    game_state.buildings.push(new_building);
+    update_total_specialist_slots(game_state);
+    update_civic_index(game_state);
+}
+
+// --- Fabricator Functions ---
+pub fn get_new_fabricator_tiers() -> Vec<FabricatorTier> {
+    vec![
+        FabricatorTier { name: "Basic Fabricator".to_string(), construction_credits_cost: 200, upkeep_cost: 10, power_requirement: 15, workforce_requirement: 1, required_tech: None, input_resources: HashMap::from([(ResourceType::FerrocreteOre, 2),(ResourceType::CuprumDeposits, 1),]), output_product: ResourceType::ManufacturedGoods, output_quantity: 1, production_time_secs: 10.0, },
+        FabricatorTier { name: "Advanced Fabricator".to_string(), construction_credits_cost: 500, upkeep_cost: 25, power_requirement: 30, workforce_requirement: 2, required_tech: Some(Tech::AdvancedFabrication), input_resources: HashMap::from([(ResourceType::ManufacturedGoods, 2),(ResourceType::RefinedXylos, 1), ]), output_product: ResourceType::AdvancedComponents, output_quantity: 1, production_time_secs: 20.0, },
+    ]
+}
+
+pub fn add_fabricator( game_state: &mut GameState, tier_index: usize, position: Option<(f32,f32)>) {
+    let all_available_tiers = get_new_fabricator_tiers();
+    if tier_index >= all_available_tiers.len() { println!("Error: Invalid tier index {} for fabricator.", tier_index); return; }
+    let tier_info = &all_available_tiers[tier_index];
+    if game_state.credits < tier_info.construction_credits_cost as f64 { add_notification( &mut game_state.notifications, format!("Not enough credits to build {}.", tier_info.name), 0.0); return; }
+    game_state.credits -= tier_info.construction_credits_cost as f64;
+    add_notification( &mut game_state.notifications, format!("Built {}.", tier_info.name), 0.0);
+    let new_building = Building {
+        id: generate_unique_id(),
+        variant: BuildingVariant::Fabricator { production_progress_secs: 0.0, available_tiers: all_available_tiers, },
+        position, current_tier_index: tier_index, is_active: false, assigned_workforce: 0,
+    };
+    game_state.buildings.push(new_building);
+    update_total_specialist_slots(game_state);
+}
+
+// --- Processing Plant Functions ---
+pub fn get_new_processing_plant_tiers() -> Vec<ProcessingPlantTier> {
+    vec![
+        ProcessingPlantTier { name: "Xylos Purifier".to_string(), construction_credits_cost: 150, upkeep_cost: 10, power_requirement: 20, workforce_requirement: 2, required_tech: Some(Tech::IndustrialProcessing), unlocks_resource: Some(ResourceType::RawXylos), input_resource: Some((ResourceType::RawXylos, 2)), output_resource: Some((ResourceType::RefinedXylos, 1)), processing_rate_per_sec: Some(0.5), },
+        ProcessingPlantTier { name: "Quantium Resonator".to_string(), construction_credits_cost: 200, upkeep_cost: 15, power_requirement: 25, workforce_requirement: 3, required_tech: Some(Tech::IndustrialProcessing), unlocks_resource: Some(ResourceType::RawQuantium), input_resource: None, output_resource: None, processing_rate_per_sec: None, },
+        ProcessingPlantTier { name: "Advanced Material Synthesizer".to_string(), construction_credits_cost: 300, upkeep_cost: 20, power_requirement: 40, workforce_requirement: 4, required_tech: Some(Tech::IndustrialProcessing), unlocks_resource: None, input_resource: Some((ResourceType::CuprumDeposits, 3)), output_resource: Some((ResourceType::ProcessedQuantium, 1)), processing_rate_per_sec: Some(0.2), },
+    ]
+}
+
+pub fn add_processing_plant( game_state: &mut GameState, tier_index: usize, position: Option<(f32,f32)>) {
+    let all_available_tiers = get_new_processing_plant_tiers();
+    if tier_index >= all_available_tiers.len() { println!("Error: Invalid tier index {} for processing plant.", tier_index); return; }
+    let tier_info = &all_available_tiers[tier_index];
+    if game_state.credits < tier_info.construction_credits_cost as f64 { add_notification( &mut game_state.notifications, format!("Not enough credits to build {}.", tier_info.name), 0.0); return; }
+    game_state.credits -= tier_info.construction_credits_cost as f64;
+    add_notification( &mut game_state.notifications, format!("Built {}.", tier_info.name), 0.0);
+    let new_building = Building {
+        id: generate_unique_id(),
+        variant: BuildingVariant::ProcessingPlant { processing_progress: 0.0, available_tiers: all_available_tiers, },
+        position, current_tier_index: tier_index, is_active: false, assigned_workforce: 0,
+    };
+    if let Some(unlocked_res) = tier_info.unlocks_resource { game_state.unlocked_raw_materials.insert(unlocked_res); }
+    game_state.buildings.push(new_building);
+    update_total_specialist_slots(game_state);
+}
+
+// --- Functions for "Simple" Buildings (Extractor, BioDome, etc.) ---
+pub fn get_default_extractor_tiers() -> Vec<ExtractorTier> {
+    vec![ExtractorTier { name: "Ferrocrete Extractor".to_string(), construction_credits_cost: 75, upkeep_cost: 5, power_requirement: 15, workforce_requirement: 5, required_tech: None, resource_type: ResourceType::FerrocreteOre, extraction_rate_per_sec: 2.5, }]
+}
+pub fn add_extractor(game_state: &mut GameState, position: Option<(f32, f32)>) {
+    let all_available_tiers = get_default_extractor_tiers(); let tier_index = 0; let tier_info = &all_available_tiers[tier_index];
+    if game_state.credits < tier_info.construction_credits_cost as f64 { add_notification(&mut game_state.notifications, format!("Not enough credits to build {}.", tier_info.name), 0.0); return; }
+    game_state.credits -= tier_info.construction_credits_cost as f64; add_notification(&mut game_state.notifications, format!("Built {}.", tier_info.name), 0.0);
+    game_state.buildings.push(Building { id: generate_unique_id(), variant: BuildingVariant::Extractor { available_tiers: all_available_tiers }, position, current_tier_index: tier_index, is_active: false, assigned_workforce: 0 });
+    update_total_specialist_slots(game_state);
+}
+pub fn get_default_biodome_tiers() -> Vec<BioDomeTier> {
+    vec![BioDomeTier { name: "Bio-Dome".to_string(), construction_credits_cost: 50, upkeep_cost: 3, power_requirement: 10, workforce_requirement: 10, required_tech: None, nutrient_paste_output_per_sec: 5.0, }]
+}
+pub fn add_bio_dome(game_state: &mut GameState, position: Option<(f32, f32)>) {
+    let all_available_tiers = get_default_biodome_tiers(); let tier_index = 0; let tier_info = &all_available_tiers[tier_index];
+    if game_state.credits < tier_info.construction_credits_cost as f64 { add_notification(&mut game_state.notifications, format!("Not enough credits to build {}.", tier_info.name), 0.0); return; }
+    game_state.credits -= tier_info.construction_credits_cost as f64; add_notification(&mut game_state.notifications, format!("Built {}.", tier_info.name), 0.0);
+    game_state.buildings.push(Building { id: generate_unique_id(), variant: BuildingVariant::BioDome { available_tiers: all_available_tiers }, position, current_tier_index: tier_index, is_active: false, assigned_workforce: 0 });
+    update_total_specialist_slots(game_state);
+}
+pub fn get_default_power_relay_tiers() -> Vec<PowerRelayTier> {
+    vec![PowerRelayTier { name: "Power Relay".to_string(), construction_credits_cost: 60, upkeep_cost: 1, power_requirement: 0, workforce_requirement: 0, required_tech: None, power_generation: 50, }]
+}
+pub fn add_power_relay(game_state: &mut GameState, position: Option<(f32, f32)>) {
+    let all_available_tiers = get_default_power_relay_tiers(); let tier_index = 0; let tier_info = &all_available_tiers[tier_index];
+    if game_state.credits < tier_info.construction_credits_cost as f64 { add_notification(&mut game_state.notifications, format!("Not enough credits to build {}.", tier_info.name), 0.0); return; }
+    game_state.credits -= tier_info.construction_credits_cost as f64; add_notification(&mut game_state.notifications, format!("Built {}.", tier_info.name), 0.0);
+    game_state.buildings.push(Building { id: generate_unique_id(), variant: BuildingVariant::PowerRelay { available_tiers: all_available_tiers }, position, current_tier_index: tier_index, is_active: true, assigned_workforce: 0 });
+}
+pub fn get_default_research_institute_tiers() -> Vec<ResearchInstituteTier> {
+    vec![ResearchInstituteTier { name: "Research Institute".to_string(), construction_credits_cost: 150, upkeep_cost: 10, power_requirement: 5, workforce_requirement: 15, required_tech: None, research_points_per_sec: 0.5, }]
+}
+pub fn add_research_institute(game_state: &mut GameState, position: Option<(f32, f32)>) {
+    let all_available_tiers = get_default_research_institute_tiers(); let tier_index = 0; let tier_info = &all_available_tiers[tier_index];
+    if game_state.credits < tier_info.construction_credits_cost as f64 { add_notification(&mut game_state.notifications, format!("Not enough credits to build {}.", tier_info.name), 0.0); return; }
+    game_state.credits -= tier_info.construction_credits_cost as f64; add_notification(&mut game_state.notifications, format!("Built {}.", tier_info.name), 0.0);
+    game_state.buildings.push(Building { id: generate_unique_id(), variant: BuildingVariant::ResearchInstitute { available_tiers: all_available_tiers }, position, current_tier_index: tier_index, is_active: false, assigned_workforce: 0 });
+    update_total_specialist_slots(game_state);
+}
+pub fn get_default_storage_silo_tiers() -> Vec<StorageSiloTier> {
+    vec![StorageSiloTier { name: "Storage Silo".to_string(), construction_credits_cost: 100, upkeep_cost: 2, power_requirement: 1, workforce_requirement: 0, required_tech: None, storage_capacity_increase: 500, }]
+}
+pub fn add_storage_silo(game_state: &mut GameState, position: Option<(f32, f32)>) {
+    let all_available_tiers = get_default_storage_silo_tiers(); let tier_index = 0; let tier_info = &all_available_tiers[tier_index];
+    if game_state.credits < tier_info.construction_credits_cost as f64 { add_notification(&mut game_state.notifications, format!("Not enough credits to build {}.", tier_info.name), 0.0); return; }
+    game_state.credits -= tier_info.construction_credits_cost as f64; add_notification(&mut game_state.notifications, format!("Built {}.", tier_info.name), 0.0);
+    game_state.buildings.push(Building { id: generate_unique_id(), variant: BuildingVariant::StorageSilo { available_tiers: all_available_tiers }, position, current_tier_index: tier_index, is_active: true, assigned_workforce: 0 });
+}
+
+// --- Building Removal, Upgrade, Workforce Assignment (Generic Functions) ---
+
+pub fn remove_building_by_id(game_state: &mut GameState, building_id_to_remove: &str) {
+    let mut building_found_and_removed = false;
+    let mut unassigned_workforce_from_removed_building = 0;
+    let mut requires_housing_update = false;
+    let mut requires_civic_index_update = false;
+    let mut requires_job_slot_update = false;
+
+    if let Some(index) = game_state.buildings.iter().position(|b| b.id == building_id_to_remove) {
+        let removed_building = game_state.buildings.remove(index);
+        building_found_and_removed = true;
+        unassigned_workforce_from_removed_building = removed_building.assigned_workforce;
+
+        match removed_building.variant {
+            BuildingVariant::Habitation { .. } => {
+                requires_housing_update = true;
+                requires_job_slot_update = true;
+            }
+            BuildingVariant::Service { .. } | BuildingVariant::Zone { .. } => {
+                requires_civic_index_update = true;
+                requires_job_slot_update = true;
+            }
+            BuildingVariant::Extractor { .. } |
+            BuildingVariant::BioDome { .. } |
+            BuildingVariant::ResearchInstitute { .. } |
+            BuildingVariant::Fabricator { .. } |
+            BuildingVariant::ProcessingPlant { .. } => {
+                requires_job_slot_update = true;
+            }
+            _ => {}
+        }
+        add_notification(&mut game_state.notifications, format!("Building {} removed.", removed_building.id), 0.0);
+    } else {
+        add_notification(&mut game_state.notifications, format!("Building ID {} not found for removal.", building_id_to_remove), 0.0);
+    }
+
+    if building_found_and_removed {
+        game_state.assigned_specialists_total = game_state.assigned_specialists_total.saturating_sub(unassigned_workforce_from_removed_building);
+        if requires_housing_update { update_housing_and_specialist_slots(game_state); }
+        if requires_civic_index_update { update_civic_index(game_state); }
+        if requires_job_slot_update && !requires_housing_update { update_total_specialist_slots(game_state); }
+
+        if requires_housing_update {
+             if game_state.total_inhabitants > game_state.available_housing_capacity {
+                game_state.total_inhabitants = game_state.total_inhabitants.min(game_state.available_housing_capacity);
+            }
+             game_state.assigned_specialists_total = game_state.assigned_specialists_total.min(game_state.total_inhabitants).min(game_state.total_specialist_slots);
+        }
+    }
+}
+
+pub fn upgrade_building_by_id(game_state: &mut GameState, building_id_to_upgrade: &str) {
+    let mut building_found = false;
+    let mut new_tier_index_opt: Option<usize> = None;
+    let mut cost = 0.0;
+    let mut new_tier_name = "".to_string();
+    let mut old_workforce_max = 0;
+    let mut new_workforce_max = 0;
+    // Flags to call update functions later
+    let mut requires_housing_update = false;
+    let mut requires_civic_index_update = false;
+    let mut requires_job_slot_update = false;
+
+
+    if let Some(building) = game_state.buildings.iter_mut().find(|b| b.id == building_id_to_upgrade) {
+        building_found = true;
+        let current_tier_idx = building.current_tier_index;
+
+        let (available_tiers_len, next_tier_cost_opt, next_tier_tech_req_opt, next_tier_w_req_opt, current_tier_w_req_opt, name_of_next_tier_opt, variant_type_for_updates) = match &building.variant {
+            BuildingVariant::Habitation { available_tiers, .. } => {
+                (available_tiers.len(),
+                 available_tiers.get(current_tier_idx + 1).map(|t: &HabitationTier| t.construction_credits_cost),
+                 available_tiers.get(current_tier_idx + 1).and_then(|t: &HabitationTier| t.required_tech),
+                 available_tiers.get(current_tier_idx + 1).map(|t: &HabitationTier| t.workforce_requirement),
+                 available_tiers.get(current_tier_idx).map(|t: &HabitationTier| t.workforce_requirement),
+                 available_tiers.get(current_tier_idx + 1).map(|t: &HabitationTier| t.name.clone()),
+                 "Habitation"
+                )
+            }
+            BuildingVariant::Service { available_tiers, .. } => {
+                (available_tiers.len(), available_tiers.get(current_tier_idx + 1).map(|t: &ServiceTier| t.construction_credits_cost), available_tiers.get(current_tier_idx + 1).and_then(|t: &ServiceTier| t.required_tech), available_tiers.get(current_tier_idx + 1).map(|t: &ServiceTier| t.workforce_requirement), available_tiers.get(current_tier_idx).map(|t: &ServiceTier| t.workforce_requirement), available_tiers.get(current_tier_idx + 1).map(|t: &ServiceTier| t.name.clone()), "Service")
+            }
+            BuildingVariant::Zone { available_tiers, .. } => {
+                (available_tiers.len(), available_tiers.get(current_tier_idx + 1).map(|t: &ZoneTier| t.construction_credits_cost), available_tiers.get(current_tier_idx + 1).and_then(|t: &ZoneTier| t.required_tech), available_tiers.get(current_tier_idx + 1).map(|t: &ZoneTier| t.workforce_requirement), available_tiers.get(current_tier_idx).map(|t: &ZoneTier| t.workforce_requirement), available_tiers.get(current_tier_idx + 1).map(|t: &ZoneTier| t.name.clone()), "Zone")
+            }
+            BuildingVariant::Fabricator { available_tiers, .. } => {
+                 (available_tiers.len(), available_tiers.get(current_tier_idx + 1).map(|t: &FabricatorTier| t.construction_credits_cost), available_tiers.get(current_tier_idx + 1).and_then(|t: &FabricatorTier| t.required_tech), available_tiers.get(current_tier_idx + 1).map(|t: &FabricatorTier| t.workforce_requirement), available_tiers.get(current_tier_idx).map(|t: &FabricatorTier| t.workforce_requirement), available_tiers.get(current_tier_idx + 1).map(|t: &FabricatorTier| t.name.clone()), "Production")
+            }
+            BuildingVariant::ProcessingPlant { available_tiers, .. } => {
+                 (available_tiers.len(), available_tiers.get(current_tier_idx + 1).map(|t: &ProcessingPlantTier| t.construction_credits_cost), available_tiers.get(current_tier_idx + 1).and_then(|t: &ProcessingPlantTier| t.required_tech), available_tiers.get(current_tier_idx + 1).map(|t: &ProcessingPlantTier| t.workforce_requirement), available_tiers.get(current_tier_idx).map(|t: &ProcessingPlantTier| t.workforce_requirement), available_tiers.get(current_tier_idx + 1).map(|t: &ProcessingPlantTier| t.name.clone()), "Production")
+            }
+            // Add other upgradable types if they become so
+            _ => {
+                add_notification(&mut game_state.notifications, format!("Building ID {} is not upgradable.", building_id_to_upgrade), 0.0);
+                return;
+            }
+        };
+
+        if current_tier_idx < available_tiers_len - 1 {
+            if let Some(tech_req) = next_tier_tech_req_opt {
+                if !game_state.unlocked_techs.contains(&tech_req) {
+                    add_notification(&mut game_state.notifications, format!("Tech {:?} required for upgrade.", tech_req), 0.0);
+                    return;
+                }
+            }
+
+            if let Some(next_cost) = next_tier_cost_opt {
+                cost = next_cost as f64;
+                if game_state.credits < cost {
+                    add_notification(&mut game_state.notifications, "Not enough credits for upgrade.".to_string(), 0.0);
+                    return;
+                }
+            } else { return; }
+
+            new_tier_index_opt = Some(current_tier_idx + 1);
+            new_tier_name = name_of_next_tier_opt.unwrap_or_default();
+            old_workforce_max = current_tier_w_req_opt.unwrap_or(0);
+            new_workforce_max = next_tier_w_req_opt.unwrap_or(0);
+
+            match variant_type_for_updates {
+                "Habitation" => { requires_housing_update = true; requires_job_slot_update = true; }
+                "Service" | "Zone" => { requires_civic_index_update = true; requires_job_slot_update = true; }
+                "Production" => { requires_job_slot_update = true; }
+                _ => {}
+            }
+
+        } else {
+            add_notification(&mut game_state.notifications, "Already at maximum tier.".to_string(), 0.0);
+            return;
+        }
+    }
+
+    if building_found && new_tier_index_opt.is_some() {
+        game_state.credits -= cost;
+        let new_tier_idx = new_tier_index_opt.unwrap();
+
+        if let Some(building) = game_state.buildings.iter_mut().find(|b| b.id == building_id_to_upgrade) {
+            building.current_tier_index = new_tier_idx;
+            add_notification(&mut game_state.notifications, format!("Upgraded {} to {}.", building.id, new_tier_name), 0.0);
+
+            if new_workforce_max < old_workforce_max {
+                if building.assigned_workforce > new_workforce_max {
+                    let to_unassign = building.assigned_workforce - new_workforce_max;
+                    building.assigned_workforce = new_workforce_max;
+                    game_state.assigned_specialists_total = game_state.assigned_specialists_total.saturating_sub(to_unassign);
+                }
+            }
+            if let BuildingVariant::Fabricator { production_progress_secs, .. } = &mut building.variant {
+                *production_progress_secs = 0.0;
+            }
+            if let BuildingVariant::ProcessingPlant { processing_progress, .. } = &mut building.variant {
+                *processing_progress = 0.0;
+            }
+        }
+
+        if requires_housing_update { update_housing_and_specialist_slots(game_state); }
+        if requires_civic_index_update { update_civic_index(game_state); }
+        if requires_job_slot_update && !requires_housing_update { update_total_specialist_slots(game_state); }
+
+    } else if building_found {
+        add_notification(&mut game_state.notifications, "Upgrade not performed.".to_string(), 0.0);
+    } else {
+         add_notification(&mut game_state.notifications, format!("Building ID {} not found for upgrade.", building_id_to_upgrade), 0.0);
+    }
+}
+
+pub fn assign_workforce_to_building_by_id(game_state: &mut GameState, building_id: &str, num_to_assign: u32) {
+    let mut success = false;
+    if let Some(building) = game_state.buildings.iter_mut().find(|b| b.id == building_id) {
+        let (max_workforce_for_tier, building_name) = match &building.variant {
+            BuildingVariant::Extractor { available_tiers } => (available_tiers.get(building.current_tier_index).map_or(0, |t: &ExtractorTier| t.workforce_requirement), available_tiers.get(building.current_tier_index).map_or_else(|| "Extractor".to_string(), |t: &ExtractorTier| t.name.clone())),
+            BuildingVariant::BioDome { available_tiers } => (available_tiers.get(building.current_tier_index).map_or(0, |t: &BioDomeTier| t.workforce_requirement), available_tiers.get(building.current_tier_index).map_or_else(|| "BioDome".to_string(), |t: &BioDomeTier| t.name.clone())),
+            BuildingVariant::ResearchInstitute { available_tiers } => (available_tiers.get(building.current_tier_index).map_or(0, |t: &ResearchInstituteTier| t.workforce_requirement), available_tiers.get(building.current_tier_index).map_or_else(|| "Research Institute".to_string(), |t: &ResearchInstituteTier| t.name.clone())),
+            BuildingVariant::Service { available_tiers, service_type } => (available_tiers.get(building.current_tier_index).map_or(0, |t: &ServiceTier| t.workforce_requirement), format!("{:?} {}", service_type, available_tiers.get(building.current_tier_index).map_or_else(|| "".to_string(), |t: &ServiceTier| t.name.clone()))),
+            BuildingVariant::Zone { available_tiers, zone_type } => (available_tiers.get(building.current_tier_index).map_or(0, |t: &ZoneTier| t.workforce_requirement), format!("{:?} {}", zone_type, available_tiers.get(building.current_tier_index).map_or_else(|| "".to_string(), |t: &ZoneTier| t.name.clone()))),
+            BuildingVariant::Fabricator { available_tiers, .. } => (available_tiers.get(building.current_tier_index).map_or(0, |t: &FabricatorTier| t.workforce_requirement), available_tiers.get(building.current_tier_index).map_or_else(|| "Fabricator".to_string(), |t: &FabricatorTier| t.name.clone())),
+            BuildingVariant::ProcessingPlant { available_tiers, .. } => (available_tiers.get(building.current_tier_index).map_or(0, |t: &ProcessingPlantTier| t.workforce_requirement), available_tiers.get(building.current_tier_index).map_or_else(|| "Processing Plant".to_string(), |t: &ProcessingPlantTier| t.name.clone())),
+            BuildingVariant::Habitation { available_tiers, .. } => (available_tiers.get(building.current_tier_index).map_or(0, |t: &HabitationTier| t.workforce_requirement), available_tiers.get(building.current_tier_index).map_or_else(|| "Habitation Structure".to_string(), |t: &HabitationTier| t.name.clone())),
+            BuildingVariant::AdministrativeSpire { available_tiers } => (available_tiers.get(building.current_tier_index).map_or(0, |t: &AdministrativeSpireTier| t.workforce_requirement), available_tiers.get(building.current_tier_index).map_or_else(|| "Admin Spire".to_string(), |t: &AdministrativeSpireTier| t.name.clone())), // Changed NewAdministrativeSpireTier
+            BuildingVariant::LegacyStructure { available_tiers } => (available_tiers.get(building.current_tier_index).map_or(0, |t: &LegacyStructureTier| t.workforce_requirement), available_tiers.get(building.current_tier_index).map_or_else(|| "Legacy Structure".to_string(), |t: &LegacyStructureTier| t.name.clone())), // Changed NewLegacyStructureTier
+            _ => (0, "Unknown Building".to_string()),
+        };
+
+        if max_workforce_for_tier == 0 {
+            add_notification(&mut game_state.notifications, format!("{} does not require workforce.", building_name), 0.0);
+            return;
+        }
+        let unassigned_inhabitants = game_state.total_inhabitants.saturating_sub(game_state.assigned_specialists_total);
+        if unassigned_inhabitants < num_to_assign {
+            add_notification(&mut game_state.notifications, format!("Not enough unassigned inhabitants for {}.", building_name), 0.0);
+            return;
+        }
+        if building.assigned_workforce + num_to_assign > max_workforce_for_tier {
+            add_notification(&mut game_state.notifications, format!("Cannot assign more workforce than required for {}. Max: {}", building_name, max_workforce_for_tier), 0.0);
+            return;
+        }
+        building.assigned_workforce += num_to_assign;
+        game_state.assigned_specialists_total += num_to_assign;
+        if building.assigned_workforce >= max_workforce_for_tier { /* building.is_active = true; */ }
+        success = true;
+        add_notification(&mut game_state.notifications, format!("Assigned {} workforce to {}.", num_to_assign, building_name),0.0);
+    } else {
+        add_notification(&mut game_state.notifications, format!("Building ID {} not found for workforce assignment.", building_id),0.0);
+    }
+    if success { /* Potentially call update_total_specialist_slots or other global updates if needed */ }
+}
+
+pub fn unassign_workforce_from_building_by_id(game_state: &mut GameState, building_id: &str, num_to_unassign: u32) {
+    if let Some(building) = game_state.buildings.iter_mut().find(|b| b.id == building_id) {
+        let building_name = match &building.variant {
+             BuildingVariant::Extractor { available_tiers, .. } => available_tiers.get(building.current_tier_index).map_or_else(|| "Extractor".to_string(), |t: &ExtractorTier| t.name.clone()),
+             BuildingVariant::BioDome { available_tiers, .. } => available_tiers.get(building.current_tier_index).map_or_else(|| "BioDome".to_string(), |t: &BioDomeTier| t.name.clone()),
+             BuildingVariant::ResearchInstitute { available_tiers, .. } => available_tiers.get(building.current_tier_index).map_or_else(|| "Research Institute".to_string(), |t: &ResearchInstituteTier| t.name.clone()),
+             BuildingVariant::Service { available_tiers, service_type } => format!("{:?} {}", service_type, available_tiers.get(building.current_tier_index).map_or_else(|| "".to_string(), |t: &ServiceTier| t.name.clone())),
+             BuildingVariant::Zone { available_tiers, zone_type } => format!("{:?} {}", zone_type, available_tiers.get(building.current_tier_index).map_or_else(|| "".to_string(), |t: &ZoneTier| t.name.clone())),
+             BuildingVariant::Fabricator { available_tiers, .. } => available_tiers.get(building.current_tier_index).map_or_else(|| "Fabricator".to_string(), |t: &FabricatorTier| t.name.clone()),
+             BuildingVariant::ProcessingPlant { available_tiers, .. } => available_tiers.get(building.current_tier_index).map_or_else(|| "Processing Plant".to_string(), |t: &ProcessingPlantTier| t.name.clone()),
+             BuildingVariant::Habitation { available_tiers, .. } => available_tiers.get(building.current_tier_index).map_or_else(|| "Habitation Structure".to_string(), |t: &HabitationTier| t.name.clone()),
+             _ => "Building".to_string(),
+        };
+
+        let actual_unassign = num_to_unassign.min(building.assigned_workforce);
+        if actual_unassign > 0 {
+            building.assigned_workforce -= actual_unassign;
+            game_state.assigned_specialists_total = game_state.assigned_specialists_total.saturating_sub(actual_unassign);
+            match &mut building.variant {
+                BuildingVariant::Fabricator { production_progress_secs, .. } => *production_progress_secs = 0.0,
+                BuildingVariant::ProcessingPlant { processing_progress, .. } => *processing_progress = 0.0,
+                _ => {}
+            }
+            add_notification(&mut game_state.notifications, format!("Unassigned {} workforce from {}.", actual_unassign, building_name),0.0);
+        }
+    } else {
+        add_notification(&mut game_state.notifications, format!("Building ID {} not found for workforce unassignment.", building_id),0.0);
+    }
+}
+
+// --- Helper Update Functions ---
+pub fn update_housing_and_specialist_slots(game_state: &mut GameState) {
+    let mut total_housing = 0;
+    let mut total_slots = 0; // For specialists housed in Habitation, distinct from general job slots.
+    for building in &game_state.buildings {
+        if let BuildingVariant::Habitation { ref available_tiers, .. } = building.variant {
+            if let Some(tier) = available_tiers.get(building.current_tier_index) {
+                total_housing += tier.housing_capacity;
+                total_slots += tier.specialist_slots;
+            }
+        }
+    }
+    game_state.available_housing_capacity = total_housing;
+    game_state.total_specialist_slots = total_slots;
+    // Note: total_specialist_slots might need to be a sum from other job providers too,
+    // this function now focuses on Habitation's contribution.
+    // Or, rename this to total_habitation_specialist_slots.
+    // For now, this matches the old direct summation from habitation_structures.
+}
+
+pub fn update_civic_index(game_state: &mut GameState) {
+    let mut new_civic_index = 0;
+    for building in &game_state.buildings {
+        if building.is_active { // Only active buildings contribute
+            match &building.variant {
+                BuildingVariant::Service { ref available_tiers, .. } => {
+                    if let Some(tier) = available_tiers.get(building.current_tier_index) {
+                        new_civic_index += tier.civic_index_contribution;
+                    }
+                }
+                BuildingVariant::Zone { ref available_tiers, .. } => {
+                    if let Some(tier) = available_tiers.get(building.current_tier_index) {
+                        new_civic_index += tier.civic_index_contribution;
+                    }
+                }
+                _ => {} // Other building types might not contribute to civic index
+            }
+        }
+    }
+    game_state.civic_index = new_civic_index;
+}
+
+pub fn update_total_specialist_slots(game_state: &mut GameState) {
+    let mut total_slots = 0;
+    for building in &game_state.buildings {
+        if !building.is_active { // Consider only active buildings for job slots
+            continue;
+        }
+        match &building.variant {
+            BuildingVariant::Habitation { ref available_tiers, .. } => {
+                if let Some(tier) = available_tiers.get(building.current_tier_index) {
+                    total_slots += tier.specialist_slots; // These are explicit specialist housing slots
+                }
+            }
+            BuildingVariant::Zone { ref available_tiers, .. } => {
+                if let Some(tier) = available_tiers.get(building.current_tier_index) {
+                    total_slots += tier.workforce_requirement; // For Zones, workforce_requirement = jobs
+                }
+            }
+            BuildingVariant::Service { ref available_tiers, .. } => {
+                if let Some(tier) = available_tiers.get(building.current_tier_index) {
+                    total_slots += tier.workforce_requirement;
+                }
+            }
+            BuildingVariant::Fabricator { ref available_tiers, .. } => {
+                if let Some(tier) = available_tiers.get(building.current_tier_index) {
+                    total_slots += tier.workforce_requirement;
+                }
+            }
+            BuildingVariant::ProcessingPlant { ref available_tiers, .. } => {
+                if let Some(tier) = available_tiers.get(building.current_tier_index) {
+                    total_slots += tier.workforce_requirement;
+                }
+            }
+            BuildingVariant::ResearchInstitute { ref available_tiers, .. } => {
+                if let Some(tier) = available_tiers.get(building.current_tier_index) {
+                    total_slots += tier.workforce_requirement;
+                }
+            }
+            BuildingVariant::Extractor { ref available_tiers, .. } => {
+                if let Some(tier) = available_tiers.get(building.current_tier_index) {
+                    total_slots += tier.workforce_requirement;
+                }
+            }
+            BuildingVariant::BioDome { ref available_tiers, .. } => {
+                if let Some(tier) = available_tiers.get(building.current_tier_index) {
+                    total_slots += tier.workforce_requirement;
+                }
+            }
+            _ => {}
+        }
+    }
+    game_state.total_specialist_slots = total_slots;
+}
+
+// --- Administrative Spire Functions ---
+
+// Placeholder: Actual tier data should be defined (e.g., in GameState::default or loaded)
+// Ensure this function returns Vec<crate::components::building::AdministrativeSpireTier>
+// and that the fields match the definition in components/building.rs
+pub fn get_administrative_spire_tiers() -> Vec<AdministrativeSpireTier> { // Return type now uses imported struct
+    vec![
+        AdministrativeSpireTier { // Fields must match crate::components::building::AdministrativeSpireTier
+            name: "Spire Core".to_string(),
+            construction_credits_cost: 1000,
+            upgrade_credits_cost: 1500,
+            upkeep_cost: 50, // Added common field
+            power_requirement: 50,
+            workforce_requirement: 5, // Added common field
+            required_tech: None, // Added common field
+            unlocks_phase: DevelopmentPhase::DP1,
+            nutrient_paste_link_required: true,
+        },
+        AdministrativeSpireTier {
+            name: "Spire Nexus".to_string(),
+            construction_credits_cost: 0,
+            upgrade_credits_cost: 2500,
+            upkeep_cost: 100, // Added common field
+            power_requirement: 100,
+            workforce_requirement: 10, // Added common field
+            required_tech: Some(Tech::EfficientExtraction), // Example
+            unlocks_phase: DevelopmentPhase::DP2,
+            nutrient_paste_link_required: true,
+        },
+        AdministrativeSpireTier {
+            name: "Spire Apex".to_string(),
+            construction_credits_cost: 0,
+            upgrade_credits_cost: 0,
+            upkeep_cost: 200, // Added common field
+            power_requirement: 200,
+            workforce_requirement: 20, // Added common field
+            required_tech: Some(Tech::ArcologyConstruction), // Example
+            unlocks_phase: DevelopmentPhase::DP3,
+            nutrient_paste_link_required: false,
+        },
+    ]
+}
+
+pub fn construct_administrative_spire(game_state: &mut GameState) {
+    if game_state.administrative_spire.is_some() {
+        add_notification(&mut game_state.notifications, "Administrative Spire already constructed.".to_string(), 0.0);
+        return;
+    }
+    let tiers = get_administrative_spire_tiers();
+    if tiers.is_empty() {
+        add_notification(&mut game_state.notifications, "No Administrative Spire tiers defined.".to_string(), 0.0);
+        return;
+    }
+    let initial_tier = &tiers[0];
+    if game_state.credits < initial_tier.construction_credits_cost as f64 {
+        add_notification(&mut game_state.notifications, format!("Not enough credits to construct {}.", initial_tier.name), 0.0);
+        return;
+    }
+    game_state.credits -= initial_tier.construction_credits_cost as f64;
+    game_state.administrative_spire = Some(AdministrativeSpire {
+        current_tier_index: 0,
+        available_tiers: tiers,
+    });
+    game_state.current_development_phase = initial_tier.unlocks_phase; // Set initial phase
+    add_notification(&mut game_state.notifications, format!("{} constructed.", initial_tier.name), 0.0);
+}
+
+pub fn upgrade_administrative_spire(game_state: &mut GameState) {
+    if let Some(spire) = &mut game_state.administrative_spire {
+        if spire.current_tier_index < spire.available_tiers.len() - 1 {
+            let current_tier = &spire.available_tiers[spire.current_tier_index];
+            let next_tier = &spire.available_tiers[spire.current_tier_index + 1];
+            let upgrade_cost = current_tier.upgrade_credits_cost; // Cost is on the current tier to upgrade to next
+
+            if game_state.credits < upgrade_cost as f64 {
+                add_notification(&mut game_state.notifications, format!("Not enough credits to upgrade Spire to {}.", next_tier.name), 0.0);
+                return;
+            }
+            // Placeholder: Check other requirements like tech if necessary
+
+            game_state.credits -= upgrade_cost as f64;
+            spire.current_tier_index += 1;
+            game_state.current_development_phase = next_tier.unlocks_phase; // Update phase
+            add_notification(&mut game_state.notifications, format!("Administrative Spire upgraded to {}.", next_tier.name), 0.0);
+        } else {
+            add_notification(&mut game_state.notifications, "Administrative Spire is already at maximum tier.".to_string(), 0.0);
+        }
+    } else {
+        add_notification(&mut game_state.notifications, "Administrative Spire not constructed yet.".to_string(), 0.0);
+    }
+}
+
+// --- Legacy Structure Functions ---
+
+// Ensure this function returns Vec<crate::components::building::LegacyStructureTier>
+// and that the fields match the definition in components/building.rs
+pub fn get_legacy_structure_tiers() -> Vec<LegacyStructureTier> { // Return type now uses imported struct
+    vec![
+        LegacyStructureTier { // Fields must match crate::components::building::LegacyStructureTier
+            name: "Ancient Monolith".to_string(),
+            construction_credits_cost: 2000,
+            upkeep_cost: 20, // Added common field
+            power_requirement: 10, // Added common field
+            workforce_requirement: 0, // Added common field
+            required_tech: None, // Added common field
+            happiness_bonus: 5.0,
+            income_bonus: 100.0,
+        },
+        LegacyStructureTier {
+            name: "Restored Monument".to_string(),
+            construction_credits_cost: 5000,
+            upkeep_cost: 50, // Added common field
+            power_requirement: 25, // Added common field
+            workforce_requirement: 0, // Added common field
+            required_tech: Some(Tech::ZoningOrdinances), // Example
+            happiness_bonus: 10.0,
+            income_bonus: 250.0,
+        },
+        LegacyStructureTier {
+            name: "Nexus Beacon".to_string(),
+            construction_credits_cost: 10000,
+            upkeep_cost: 100, // Added common field
+            power_requirement: 50, // Added common field
+            workforce_requirement: 0, // Added common field
+            required_tech: Some(Tech::ArcologyConstruction), // Example
+            happiness_bonus: 20.0,
+            income_bonus: 500.0,
+        },
+    ]
+}
+
+pub fn construct_legacy_structure(game_state: &mut GameState) {
+    if game_state.legacy_structure.is_some() {
+        add_notification(&mut game_state.notifications, "Legacy Structure already constructed.".to_string(), 0.0);
+        return;
+    }
+    if game_state.current_development_phase < DevelopmentPhase::DP3 {
+         add_notification(&mut game_state.notifications, "Legacy Structure requires Development Phase 3.".to_string(), 0.0);
+        return;
+    }
+    let tiers = get_legacy_structure_tiers();
+    if tiers.is_empty() {
+         add_notification(&mut game_state.notifications, "No Legacy Structure tiers defined.".to_string(), 0.0);
+        return;
+    }
+    let initial_tier = &tiers[0];
+    if game_state.credits < initial_tier.construction_credits_cost as f64 {
+        add_notification(&mut game_state.notifications, format!("Not enough credits to construct {}.", initial_tier.name), 0.0);
+        return;
+    }
+    game_state.credits -= initial_tier.construction_credits_cost as f64;
+    game_state.legacy_structure = Some(LegacyStructure {
+        current_tier_index: 0,
+        available_tiers: tiers,
+    });
+    // Apply initial bonuses
+    game_state.colony_happiness += initial_tier.happiness_bonus;
+    // Income bonus might be applied per tick in another system
+    add_notification(&mut game_state.notifications, format!("{} constructed.", initial_tier.name), 0.0);
+}
+
+pub fn upgrade_legacy_structure(game_state: &mut GameState) {
+    if let Some(structure) = &mut game_state.legacy_structure {
+        if structure.current_tier_index < structure.available_tiers.len() - 1 {
+            let next_tier_index = structure.current_tier_index + 1;
+            let next_tier = &structure.available_tiers[next_tier_index];
+            // Cost to upgrade is the construction_cost of the target tier.
+            let upgrade_cost = next_tier.construction_credits_cost;
+
+            if game_state.credits < upgrade_cost as f64 {
+                add_notification(&mut game_state.notifications, format!("Not enough credits to upgrade Legacy Structure to {}.", next_tier.name), 0.0);
+                return;
+            }
+            // Placeholder: Check other requirements if necessary
+
+            // Remove previous tier's bonus before applying new one
+            let previous_tier = &structure.available_tiers[structure.current_tier_index];
+            game_state.colony_happiness -= previous_tier.happiness_bonus;
+
+            game_state.credits -= upgrade_cost as f64;
+            structure.current_tier_index = next_tier_index;
+
+            // Apply new tier's bonus
+            game_state.colony_happiness += next_tier.happiness_bonus;
+            // Income bonus might be applied per tick in another system
+
+            add_notification(&mut game_state.notifications, format!("Legacy Structure upgraded to {}.", next_tier.name), 0.0);
+        } else {
+            add_notification(&mut game_state.notifications, "Legacy Structure is already at maximum tier.".to_string(), 0.0);
+        }
+    } else {
+        add_notification(&mut game_state.notifications, "Legacy Structure not constructed yet.".to_string(), 0.0);
+    }
+}
+
+// pub fn get_legacy_structure_tiers() -> Vec<LegacyStructureTier> { ... } // These are already present
+// pub fn construct_legacy_structure(game_state: &mut GameState) { ... }
