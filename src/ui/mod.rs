@@ -6,6 +6,8 @@ use crate::game_state::{
     GraphData,
     LoadGameEvent,
     ResourceType,
+    BASE_STORAGE_CAPACITY,
+    STORAGE_SILO_CAPACITY,
     SaveGameEvent,
     Tech,
     ALL_BUILDING_TYPES,
@@ -42,6 +44,8 @@ struct PowerText;
 struct PopulationText;
 #[derive(Component)]
 struct WorkforceText;
+#[derive(Component)]
+struct StorageText;
 #[derive(Component)]
 struct CoreResourceText(ResourceType);
 #[derive(Component)]
@@ -160,6 +164,7 @@ fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
             ticker.spawn((TextBundle::from_section("⚡", TextStyle { font_size: 18.0, color: Color::CYAN, ..default() }).with_style(Style { margin: UiRect::horizontal(Val::Px(10.0)), ..default() }), PowerText));
             ticker.spawn((TextBundle::from_section("👤", TextStyle { font_size: 18.0, color: Color::WHITE, ..default() }).with_style(Style { margin: UiRect::horizontal(Val::Px(10.0)), ..default() }), PopulationText));
             ticker.spawn((TextBundle::from_section("🛠️", TextStyle { font_size: 18.0, color: Color::ORANGE, ..default() }).with_style(Style { margin: UiRect::horizontal(Val::Px(10.0)), ..default() }), WorkforceText));
+            ticker.spawn((TextBundle::from_section("📦", TextStyle { font_size: 18.0, color: Color::GRAY, ..default() }).with_style(Style { margin: UiRect::horizontal(Val::Px(10.0)), ..default() }), StorageText));
             let core_resources = [ResourceType::NutrientPaste, ResourceType::FerrocreteOre, ResourceType::CuprumDeposits];
             for res in core_resources {
                 ticker.spawn((TextBundle::from_section(format!("{:?}", res), TextStyle {font_size: 16.0, color: LABEL_TEXT_COLOR, ..default()}).with_style(Style { margin: UiRect::horizontal(Val::Px(10.0)), ..default() }), CoreResourceText(res)));
@@ -300,6 +305,7 @@ fn update_status_ticker_system(
         Query<&mut Text, With<PowerText>>,
         Query<&mut Text, With<PopulationText>>,
         Query<&mut Text, With<WorkforceText>>,
+        Query<&mut Text, With<StorageText>>,
         Query<(&mut Text, &CoreResourceText)>,
         Query<&mut Text, With<ColonyHappinessText>>,
     )>,
@@ -321,15 +327,24 @@ fn update_status_ticker_system(
     // Workforce
     queries.p3().single_mut().sections[0].value = format!("🛠️ {} / {}", game_state.assigned_workforce, game_state.total_inhabitants);
 
+    // Storage
+    let capacity = BASE_STORAGE_CAPACITY + game_state.storage_silos.len() as f32 * STORAGE_SILO_CAPACITY;
+    let max_used = game_state
+        .current_resources
+        .values()
+        .fold(0.0_f32, |m, v| m.max(*v));
+    queries.p4().single_mut().sections[0].value = format!("📦 {:.0}/{:.0}", max_used, capacity);
+
     // Core Resources
-    for (mut text, marker) in queries.p4().iter_mut() {
+    for (mut text, marker) in queries.p5().iter_mut() {
         let amount = game_state.current_resources.get(&marker.0).unwrap_or(&0.0);
-        text.sections[0].value = format!("{:?}: {:.0}", marker.0, amount);
+        let capacity = BASE_STORAGE_CAPACITY + game_state.storage_silos.len() as f32 * STORAGE_SILO_CAPACITY;
+        text.sections[0].value = format!("{:?}: {:.0}/{:.0}", marker.0, amount, capacity);
     }
 
     // Happiness
-    let mut p5 = queries.p5();
-    let mut happiness_text = p5.single_mut();
+    let mut p6 = queries.p6();
+    let mut happiness_text = p6.single_mut();
     happiness_text.sections[0].value = format!(
         "{} {:.0}%",
         match game_state.colony_happiness {

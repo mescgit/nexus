@@ -1,12 +1,15 @@
 // src/game_state.rs
 
 use bevy::prelude::*;
-use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicU32, Ordering};
+
+pub const FOOD_CONSUMPTION_PER_PERSON: f32 = 0.1;
+pub const BASE_STORAGE_CAPACITY: f32 = 1000.0;
+pub const STORAGE_SILO_CAPACITY: f32 = 500.0;
 
 use crate::resources::population::PopulationResource;
 use crate::systems::happiness::{happiness_system, calculate_colony_happiness, HappinessResource};
@@ -541,6 +544,9 @@ pub struct GameState {
     pub tech_costs: HashMap<Tech, u32>,
     pub habitation_structures: Vec<HabitationStructure>,
     pub total_inhabitants: u32,
+    /// Accumulator for fractional population growth between ticks
+    #[serde(default)]
+    pub population_growth_progress: f32,
     pub assigned_workforce: u32,
     pub available_housing_capacity: u32,
     pub total_specialist_slots: u32,
@@ -689,6 +695,7 @@ impl Default for GameState {
             tech_costs,
             habitation_structures: Vec::new(),
             total_inhabitants: 5,
+            population_growth_progress: 0.0,
             assigned_workforce: 0,
             available_housing_capacity: 0,
             total_specialist_slots: 0,
@@ -1373,11 +1380,13 @@ impl Plugin for GameLogicPlugin {
                     workforce_assignment_system,
                     game_tick_system.after(workforce_assignment_system),
                     research_system,
-                    population_growth_system.after(game_tick_system),
+                    food_consumption_system.after(game_tick_system),
+                    population_growth_system.after(food_consumption_system),
                     fabricator_production_tick_system.after(game_tick_system),
                     processing_plant_operations_tick_system.after(game_tick_system),
                     upkeep_income_tick_system.after(processing_plant_operations_tick_system),
-                    service_coverage_system.after(upkeep_income_tick_system),
+                    clamp_resource_system.after(upkeep_income_tick_system),
+                    service_coverage_system.after(clamp_resource_system),
                     happiness_system.after(service_coverage_system),
                     update_colony_stats_system.after(happiness_system),
                     update_graph_data_system.after(update_colony_stats_system),
@@ -1427,28 +1436,82 @@ fn deduct_upkeep_system(game_state: &mut GameState) {
         println!("Warning: Insufficient credits ({:.2}) to cover all upkeep ({:.2}). Deactivating buildings.", initial_credits, potential_total_upkeep);
 
         for fab in game_state.fabricators.iter_mut() {
-            if fab.is_active { if let Some(tier) = fab.available_tiers.get(fab.tier_index) {
-                if initial_credits < (total_upkeep_to_deduct_this_tick + tier.upkeep_cost as f64) { fab.is_active = false; println!("Deactivated Fabricator {}", fab.id); }
-                else { total_upkeep_to_deduct_this_tick += tier.upkeep_cost as f64;}
-            }}
+            if fab.is_active {
+                if let Some(tier) = fab.available_tiers.get(fab.tier_index) {
+                    if initial_credits
+                        < (total_upkeep_to_deduct_this_tick + tier.upkeep_cost as f64)
+                    {
+                        fab.is_active = false;
+                        add_notification(
+                            &mut game_state.notifications,
+                            format!("Fabricator {} deactivated: unpaid upkeep", fab.id),
+                            0.0,
+                        );
+                        println!("Deactivated Fabricator {}", fab.id);
+                    } else {
+                        total_upkeep_to_deduct_this_tick += tier.upkeep_cost as f64;
+                    }
+                }
+            }
         }
         for plant in game_state.processing_plants.iter_mut() {
-            if plant.is_active { if let Some(tier) = plant.available_tiers.get(plant.tier_index) {
-                if initial_credits < (total_upkeep_to_deduct_this_tick + tier.upkeep_cost as f64) { plant.is_active = false; println!("Deactivated Processing Plant {}", plant.id); }
-                else { total_upkeep_to_deduct_this_tick += tier.upkeep_cost as f64; }
-            }}
+            if plant.is_active {
+                if let Some(tier) = plant.available_tiers.get(plant.tier_index) {
+                    if initial_credits
+                        < (total_upkeep_to_deduct_this_tick + tier.upkeep_cost as f64)
+                    {
+                        plant.is_active = false;
+                        add_notification(
+                            &mut game_state.notifications,
+                            format!("Processing Plant {} deactivated: unpaid upkeep", plant.id),
+                            0.0,
+                        );
+                        println!("Deactivated Processing Plant {}", plant.id);
+                    } else {
+                        total_upkeep_to_deduct_this_tick += tier.upkeep_cost as f64;
+                    }
+                }
+            }
         }
         for zone in game_state.zones.iter_mut() {
-            if zone.is_active { if let Some(tier) = zone.available_tiers.get(zone.current_tier_index) {
-                if initial_credits < (total_upkeep_to_deduct_this_tick + tier.upkeep_cost as f64) { zone.is_active = false; civic_index_needs_update = true; println!("Deactivated Zone {}", zone.id); }
-                else { total_upkeep_to_deduct_this_tick += tier.upkeep_cost as f64; }
-            }}
+            if zone.is_active {
+                if let Some(tier) = zone.available_tiers.get(zone.current_tier_index) {
+                    if initial_credits
+                        < (total_upkeep_to_deduct_this_tick + tier.upkeep_cost as f64)
+                    {
+                        zone.is_active = false;
+                        civic_index_needs_update = true;
+                        add_notification(
+                            &mut game_state.notifications,
+                            format!("Zone {} deactivated: unpaid upkeep", zone.id),
+                            0.0,
+                        );
+                        println!("Deactivated Zone {}", zone.id);
+                    } else {
+                        total_upkeep_to_deduct_this_tick += tier.upkeep_cost as f64;
+                    }
+                }
+            }
         }
         for building in game_state.service_buildings.iter_mut() {
-            if building.is_active { if let Some(tier) = building.available_tiers.get(building.current_tier_index) {
-                if initial_credits < (total_upkeep_to_deduct_this_tick + tier.upkeep_cost as f64) { building.is_active = false; civic_index_needs_update = true; println!("Deactivated Service Building {}", building.id); }
-                else { total_upkeep_to_deduct_this_tick += tier.upkeep_cost as f64; }
-            }}
+            if building.is_active {
+                if let Some(tier) = building.available_tiers.get(building.current_tier_index) {
+                    if initial_credits
+                        < (total_upkeep_to_deduct_this_tick + tier.upkeep_cost as f64)
+                    {
+                        building.is_active = false;
+                        civic_index_needs_update = true;
+                        add_notification(
+                            &mut game_state.notifications,
+                            format!("Service Building {} deactivated: unpaid upkeep", building.id),
+                            0.0,
+                        );
+                        println!("Deactivated Service Building {}", building.id);
+                    } else {
+                        total_upkeep_to_deduct_this_tick += tier.upkeep_cost as f64;
+                    }
+                }
+            }
         }
     }
 
@@ -1583,19 +1646,47 @@ fn game_tick_system(mut game_state: ResMut<GameState>) {
         let staffed_bio_domes = game_state.bio_domes.iter().filter(|d| d.is_staffed).count() as f32;
         let staffed_extractors = game_state.extractors.iter().filter(|e| e.is_staffed).count() as f32;
 
-        let capacity: u32 = game_state.storage_silos.len() as u32 * 500;
-        let total_capacity = 1000 + capacity; // Base capacity + silo capacity
+        let total_capacity = BASE_STORAGE_CAPACITY
+            + game_state.storage_silos.len() as f32 * STORAGE_SILO_CAPACITY;
 
         // Now, update resources without holding the previous borrows.
         let nutrient_paste_amount = game_state.current_resources.entry(ResourceType::NutrientPaste).or_insert(0.0);
-        *nutrient_paste_amount = (*nutrient_paste_amount + 5.0 * staffed_bio_domes).min(total_capacity as f32);
+        *nutrient_paste_amount = (*nutrient_paste_amount + 5.0 * staffed_bio_domes).min(total_capacity);
 
         let ferrocrete_ore_amount = game_state.current_resources.entry(ResourceType::FerrocreteOre).or_insert(0.0);
-        *ferrocrete_ore_amount = (*ferrocrete_ore_amount + 2.5 * staffed_extractors).min(total_capacity as f32);
+        *ferrocrete_ore_amount = (*ferrocrete_ore_amount + 2.5 * staffed_extractors).min(total_capacity);
     }
 
     // Update food status for happiness calculation
-    game_state.simulated_has_sufficient_nutrient_paste = game_state.current_resources.get(&ResourceType::NutrientPaste).unwrap_or(&0.0) > &0.0;
+    game_state.simulated_has_sufficient_nutrient_paste = game_state
+        .current_resources
+        .get(&ResourceType::NutrientPaste)
+        .unwrap_or(&0.0)
+        > &0.0;
+}
+
+fn food_consumption_system(mut game_state: ResMut<GameState>) {
+    let consumption = game_state.total_inhabitants as f32 * FOOD_CONSUMPTION_PER_PERSON;
+    let entry = game_state
+        .current_resources
+        .entry(ResourceType::NutrientPaste)
+        .or_insert(0.0);
+
+    if *entry >= consumption {
+        *entry -= consumption;
+    } else {
+        *entry = 0.0;
+    }
+
+    game_state.simulated_has_sufficient_nutrient_paste = *entry > 0.0;
+}
+
+fn clamp_resource_system(mut game_state: ResMut<GameState>) {
+    for value in game_state.current_resources.values_mut() {
+        if *value < 0.0 {
+            *value = 0.0;
+        }
+    }
 }
 
 
