@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use crate::game_state::GameState;
+use crate::game_state::{GameState, ServiceCoverage, ServiceType};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DiagnosticType {
@@ -20,6 +20,10 @@ pub(super) struct DiagnosticItem(pub DiagnosticType);
 pub(super) struct PopulationStatusText;
 #[derive(Component)]
 pub(super) struct PopulationFactorsText;
+#[derive(Component)]
+pub(super) struct ServiceCoverageItem(pub ServiceType);
+#[derive(Component)]
+pub(super) struct PanelHappinessText;
 
 pub(super) fn build(viewport: &mut ChildBuilder, _assets: &Res<AssetServer>) {
 
@@ -138,14 +142,74 @@ pub(super) fn build(viewport: &mut ChildBuilder, _assets: &Res<AssetServer>) {
                     DiagnosticItem(diag_type),
                 ));
             }
+
+            // Service Coverage Section
+            status.spawn(
+                TextBundle::from_section(
+                    "SERVICE COVERAGE",
+                    TextStyle {
+                        font_size: 20.0,
+                        color: LABEL_TEXT_COLOR,
+                        ..default()
+                    },
+                )
+                .with_style(Style {
+                    margin: UiRect::vertical(Val::Px(10.0)),
+                    ..default()
+                }),
+            );
+
+            let services = [
+                ServiceType::Wellness,
+                ServiceType::Security,
+                ServiceType::Education,
+                ServiceType::Recreation,
+                ServiceType::Spiritual,
+            ];
+            for service in services {
+                status.spawn((
+                    TextBundle::from_section(
+                        format!("{:?}: 0%", service),
+                        TextStyle {
+                            font_size: 18.0,
+                            color: PRIMARY_TEXT_COLOR,
+                            ..default()
+                        },
+                    )
+                    .with_style(Style {
+                        margin: UiRect::bottom(Val::Px(5.0)),
+                        ..default()
+                    }),
+                    ServiceCoverageItem(service),
+                ));
+            }
+
+            status.spawn((
+                TextBundle::from_section(
+                    "Happiness: 0%",
+                    TextStyle {
+                        font_size: 18.0,
+                        color: PRIMARY_TEXT_COLOR,
+                        ..default()
+                    },
+                )
+                .with_style(Style {
+                    margin: UiRect::top(Val::Px(10.0)),
+                    ..default()
+                }),
+                PanelHappinessText,
+            ));
         });
 }
 pub(super) fn update_colony_status_panel_system(
     game_state: Res<GameState>,
+    coverage: Res<ServiceCoverage>,
     mut queries: ParamSet<(
         Query<(&mut Text, &DiagnosticItem)>,
         Query<&mut Text, With<PopulationStatusText>>,
         Query<&mut Text, With<PopulationFactorsText>>,
+        Query<(&mut Text, &ServiceCoverageItem)>,
+        Query<&mut Text, With<PanelHappinessText>>,
     )>,
 ) {
     if !game_state.is_changed() { return; }
@@ -205,5 +269,29 @@ pub(super) fn update_colony_status_panel_system(
         };
         text.sections[0].value = format!("{:?}: {}", item.0, status_text);
         text.sections[0].style.color = color;
+    }
+
+    for (mut text, item) in queries.p3().iter_mut() {
+        let ratio = coverage.coverage.get(&item.0).copied().unwrap_or(0.0);
+        let color = if ratio >= 1.0 {
+            Color::GREEN
+        } else if ratio >= 0.5 {
+            Color::YELLOW
+        } else {
+            Color::RED
+        };
+        text.sections[0].value = format!("{:?}: {:.0}%", item.0, ratio * 100.0);
+        text.sections[0].style.color = color;
+    }
+
+    if let Ok(mut happiness_text) = queries.p4().get_single_mut() {
+        happiness_text.sections[0].value = format!("Happiness: {:.0}%", game_state.colony_happiness);
+        happiness_text.sections[0].style.color = if game_state.colony_happiness >= 85.0 {
+            Color::GREEN
+        } else if game_state.colony_happiness >= 50.0 {
+            Color::YELLOW
+        } else {
+            Color::RED
+        };
     }
 }
