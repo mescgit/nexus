@@ -321,8 +321,30 @@ fn update_status_ticker_system(
     power_text.sections[0].value = format!("⚡ {:+.0} | 🔋 {:.0}", net_power, stored_power);
     power_text.sections[0].style.color = if net_power < 0.0 { Color::RED } else { Color::CYAN };
 
-    // Population
-    queries.p2().single_mut().sections[0].value = format!("👤 {} / {}", game_state.total_inhabitants, game_state.available_housing_capacity);
+    // Population with growth indicator
+    let has_housing = game_state.total_inhabitants < game_state.available_housing_capacity;
+    let has_food = game_state.simulated_has_sufficient_nutrient_paste;
+    let happy = game_state.colony_happiness > 50.0;
+
+    let status = if !has_food {
+        ("No Food", Color::RED)
+    } else if !has_housing {
+        ("No Housing", Color::RED)
+    } else if !happy {
+        ("Unhappy", Color::YELLOW)
+    } else {
+        ("Growing", Color::GREEN)
+    };
+
+    let mut q2 = queries.p2();
+    let mut pop_text = q2.single_mut();
+    pop_text.sections[0].value = format!(
+        "👤 {} / {} ({})",
+        game_state.total_inhabitants,
+        game_state.available_housing_capacity,
+        status.0
+    );
+    pop_text.sections[0].style.color = status.1;
 
     // Workforce
     queries.p3().single_mut().sections[0].value = format!("🛠️ {} / {}", game_state.assigned_workforce, game_state.total_inhabitants);
