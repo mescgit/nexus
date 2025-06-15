@@ -182,7 +182,9 @@ fn tutorial_ok_button_system(
                     color.0 = orig.0;
                 }
             }
-            commands.entity(entity).remove::<HighlightOriginalColor>();
+            if let Some(mut ent) = commands.get_entity(entity) {
+                ent.remove::<HighlightOriginalColor>();
+            }
         }
     }
 }
