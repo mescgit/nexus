@@ -1,103 +1,447 @@
-**Nexus Core: Colony Manager - Development Roadmap**
+Core Simulation & System Integration
 
----
+    Establish Consistent Game Loop: Finalize the fixed-update simulation tick so all systems update in the correct order (e.g. workforce assignment → power/production → research → upkeep/income → service coverage → happiness) without race conditions. Ensure the tick rate is tuned for stable gameplay (e.g. 1 tick per second) and support pause/resume and future speed control.
 
-**PHASE 1: CORE INFRASTRUCTURE**
+    Save/Load Functionality: Thoroughly test the serialization of GameState to JSON and back. Fix any deserialization bugs and ensure new fields (e.g. building tiers, tech unlocks) are included. Connect Save/Load to UI buttons so players can persist progress.
 
-1. **Basic Game State Setup**
+    Refactor Building Data: Reduce integration friction by unifying building management. Migrate “basic” buildings (Extractors, Bio-Domes, etc.) into the data-driven structures system, or ensure their logic is fully integrated with new systems. This means using common fields for power, staffing, upkeep, and so on, so all buildings behave consistently during ticks.
 
-   * App bootstrapping, game state management
-   * ECS scaffolding for resources and components
+    Notification & Alert Pipeline: Verify that the notification queue (game_state.notifications) feeds into the UI ticker. All alert conditions (power deficit, food shortage, unrest, storage near cap) should push messages
+     
+     
+    . Implement visual cues (e.g. blinking icons or colored text) for “ALERT:” notifications to draw player attention.
 
-2. **Resource & Power Systems**
+    Performance Check: As the simulation grows in complexity, profile for any bottlenecks. Optimize loops (e.g. use cached counts for large vectors) to handle a full late-game colony. Ensure the FixedUpdate tick doesn’t lag with maximum structures and population.
 
-   * Resource types: Ferrocrete, Silica, Food, Power
-   * Extractors generate resources, require power
-   * Power Grid: Operations Hub, Power Relay mechanics
+Power Management (Energy Systems)
 
-3. **Construction System**
+    Power Production & Demand Tracking: Complete the implementation of the power grid. The Operations Hub/Power Relays should generate a base power supply, and every active building consumes a defined amount of power
+     
+     
+    . Track total generated vs. consumed power each tick and update game_state.total_generated_power and total_consumed_power.
 
-   * Building placement UI
-   * Placement validation: space, terrain, cost, power reach
-   * Entity spawning: tagged building types
+    Dynamic Power Allocation: Implement logic to handle power surplus/deficit. Surplus power should charge a “Power” resource buffer (stored energy), and deficits draw from it
+     
+     
+    . If the buffer is exhausted, mark the colony as power starved and suspend non-critical production.
 
----
+    Building Power Requirements: Enforce that buildings outside the power network or lacking supply become inactive. For example, if an Extractor is placed with no Power Relay in range, flag it as unpowered (needs_power) so it doesn’t produce until power is extended
+    file-r7wuncmjq2cj6cutt1fydt
+    . Implement distance checks using building coordinates to decide if a structure is within a relay’s range (could reuse service radius logic for power coverage).
 
-**PHASE 2: POPULATION & SERVICES**
+    UI Power Indicators: Add a power status display in the UI (e.g. net power “⚡” already in the top bar) showing current supply vs. demand in real time. If power is negative, color the text red and perhaps show a small outage icon. Include an in-game alert if a new deficit arises (“ALERT: Power deficit detected.”) – this is already enqueued in notifications
+     
+    .
 
-4. **Population System**
+    Power Outage Effects & Recovery: When power is insufficient, ensure affected buildings visibly indicate shutdown (e.g. greyed-out icons or a “No Power” tooltip). Resume their operation automatically once power is restored (and send a “Power levels stabilized” notification
+     
+    ). Test that critical structures like the Administrative Spire cannot upgrade unless the extra power required is available
+     
+    .
 
-   * PopulationResource tracks: total pop, capacity, food, happiness
-   * Growth logic: needs food, housing, services, happiness
-   * Food consumption loop
+    Balance Power System: Tune the numbers for balance. For example, if each Power Relay provides +50 power, ensure typical base consumption (miners, biodomes, etc.) scales so the player must build relays periodically to power expansion
+     
+     
+    . Likewise, adjust stored power capacity (from the “Power” resource or batteries, if any) to give a small buffer but not trivialize outages.
 
-5. **Housing & Food**
+Economy & Resource Management
 
-   * Basic Dwelling: adds housing capacity
-   * Bio-Dome: produces Nutrient Paste
+    Resource Production Loops: Finalize all resource generation systems. Extractors should produce base resources (e.g. Ferrocrete Ore) per tick, and Bio-Domes generate Nutrient Paste, obeying power and staffing constraints
+     
+     
+    . Verify that production is capped by storage capacity (base storage plus silos) so resources don’t grow unbounded
+     
+     
+    .
 
-6. **Service Coverage System**
+    Resource Consumption Mechanics: Implement consumption where applicable. Population food consumption is crucial: deduct Nutrient Paste each tick proportional to population size (e.g. X units per inhabitant) so that food supply can be depleted, triggering hunger if production falters. This will work with the happiness penalty for starvation already in place
+     
+     
+    . Additionally, ensure processing buildings consume their inputs – the Fabricator and ProcessingPlant systems should already subtract input materials when producing outputs
+     
+     
+    .
 
-   * Radius-based influence: healthcare, security, education
-   * Buildings: Wellness Post, Security Station, Education Node
-   * UI: hover to visualize coverage zones
+    Storage & Capacity: Rework storage mechanics for clarity. Currently a global capacity (1000 + 500 per Silo) is used for all resources
+     
+     
+    . If design calls for per-resource caps, implement each Storage Silo type to increase specific resource limits. Otherwise, keep the global cap but communicate it to the player (e.g. a storage bar in the UI). Also, prevent negative resources: ensure consumption can’t drive a resource below 0 (saturate at 0 and perhaps warn the player).
 
-7. **Happiness System**
+    Credits & Currency Flows: Integrate the credit economy fully. All constructions and upgrades that cost credits (Administrative Spire, Legacy, zones, etc.) should correctly deduct from game_state.credits and check affordability before execution
+     
+     
+    . Implement income generation from Commercial zones and Legacy bonuses each tick
+     
+     
+    . For example, add to credits per tick based on active Commercial zones (their income_generation field) and add any Legacy income bonus
+     
+    . Tie these into the UI (display current Credits “Cr.” in the top bar, already present).
 
-   * Global and sector happiness tracked
-   * Factors: food supply, housing, service access, crowding
-   * Affects growth rate, future events, worker efficiency
+    Upkeep Costs & Building States: Finish the upkeep deduction system. Each tick, sum all active buildings’ upkeep in credits and subtract from credits
+     
+    . The provided logic deactivates buildings if upkeep can’t be paid
+     
+     
+    – ensure this works for all building types (services, zones, fabricators, plants) and that a deactivated building stops producing and contributing effects. Surface this in the UI: if a building was shut down due to bankruptcy, show an icon or include a line in its tooltip (“Inactive – unpaid upkeep”). Allow reactivation automatically if credits become positive (the next tick’s logic will flip is_active back to true if affordable). Test edge cases like credits oscillating around 0.
 
----
+    Construction Costs & Materials: Make sure building costs in both materials and credits are enforced uniformly. The Construction UI already checks and deducts required resources for core buildings
+     
+    . Extend this to habitation, service, and zone construction: these use credit costs – the UI uses can_afford for credits and disables buttons appropriately
+     
+     
+    . Double-check that tech-required buildings are hidden or disabled until the tech is unlocked (e.g. Storage Silo and Research Institute require Basic Construction Protocols tech
+     
+    ). Add a tooltip on disabled build buttons explaining “Requires X tech” or “Requires Phase Y” for clarity.
 
-**PHASE 3: RESEARCH & PROGRESSION**
+    Economic Balance Pass: Adjust production and cost values for a smooth progression. Ensure that resource extraction and food production rates can support the population growth curve (with some planned scarcity to drive expansion). Balance credit sinks (upkeep, construction) against sources (zone income, periodic events) so that running a large colony without sufficient Commercial zones will pressure the budget. The goal is to require the player to diversify (build economy structures) by mid-game to sustain growth.
 
-8. **Research System**
+Population & Housing
 
-   * Unlocks new building types, upgrades, efficiency
-   * Requires Research Institute
-   * UI: tech tree panel, branching options
+    Housing Capacity Tracking: Ensure that building housing (Habitation structures) properly adds to colony capacity. The update_housing_and_specialist_slots() function already sums housing space and specialist slots when a dwelling is built or upgraded
+     
+     
+    . Confirm this is called on all relevant events (construction, upgrade, removal) so that available_housing_capacity is always accurate. Display housing info in the UI (e.g. “Population: 45 / Housing: 50” in the colony status panel).
 
-9. **Development Phases**
+    Population Growth Implementation: Refine the population growth model to match design intentions. Currently, growth is random based on happiness
+     
+    ; consider switching to a deterministic formula if needed (e.g. using the formula from the design: growth rate ~1% of pop * factors
+     
+    ). At minimum, ensure growth only occurs when food, housing, and happiness are positive, as is the case now
+     
+     
+    . Calibrate the growth rate or probability so that population increases feel steady but not too fast in early game and can reach the required numbers for endgame (max pop for Legacy).
 
-   * DP1: Basic Infrastructure
-   * DP2: Advanced Industry
-   * DP3: Specialization / Legacy structures
-   * Gates building visibility & global events
+    Food Consumption & Starvation: Implement the food consumption loop for inhabitants
+     
+    . For example, each tick subtract a small amount of Nutrient Paste per citizen (e.g. 0.1 units per person per tick, tuned as needed). If food runs out, set simulated_has_sufficient_nutrient_paste = false and watch happiness plummet from the starvation penalty
+     
+     
+    . This will create a feedback loop where population growth halts or reverses if food is insufficient, as expected. Conversely, if food is plentiful, mark it sufficient (already tracked) to boost happiness
+     
+     
+    .
 
-10. **Legacy System**
+    Population UI & Feedback: Enhance the Colony Status panel to show key population metrics. Include current population, housing capacity, and perhaps a growth indicator (e.g. “Growing” or “At capacity”). If population is capped by housing or suffering due to low food, surface that (e.g. a warning “No housing space – population growth stalled”). Utilize the happiness and needs factors to explain population trends in tooltips (for example: hover on population count could show “Housing OK, Food LOW, Happiness 80%: growth slowed”).
 
-    * High-tier buildings (e.g., Genesis Monument)
-    * Require massive resources & full civic development
-    * Optional prestige or victory mechanic
+    Initial Population & Tutorial Triggers: Start the game with a reasonable initial population (the default is 5 in code
+     
+    ). Ensure the first tutorial steps reflect that (they likely do). If implementing migration or external population events (not in current scope), integrate carefully. For now, focus on the internal growth mechanic to reach the specialist thresholds needed in mid-game.
 
----
+Specialists & Workforce Management
 
-**PHASE 4: UI & TUTORIALS**
+    Specialist Generation Rules: Implement a clear rule for how general population becomes Specialists. The design suggests automatic specialist promotion when conditions are met
+     
+    , but the current approach uses manual assignment. As a middle ground, allow the player to assign specialists using UI controls, but only when there are free inhabitants and available specialist slots (from housing or jobs). Implement a check or notification when the colony could support a new Specialist (e.g. idle educated citizens) to prompt the player.
 
-11. **Tablet UI Theme**
+    Specialist Assignment UI: Create interface elements to manage Specialists in buildings:
 
-    * Responsive screen layout, screen switching
-    * Panels: Dashboard, Research, Build, Stats
+        Service Buildings: In the “Managed Structures” or Services panel, list each service building with how many specialists it has out of how many required. Provide “+” and “–” buttons or a slider to assign/unassign Specialists to that building, calling assign_specialists_to_service_building() under the hood
+         
+         
+        . For example, a Wellness Center requiring 2 specialists should show 0/2 assigned initially, and allow the player to assign up to 2 if available.
 
-12. **Tooltip Tutorial System**
+        Zones (Commercial/Industrial): Similarly, for each Zone structure, display current vs. max specialist workers and allow adjustments (already supported by assign_specialists_to_zone()
+         
+         
+        and associated UI button systems). Ensure the Dashboard lists zones and their staffing.
 
-    * TooltipStep resource list
-    * Triggered guidance based on game state
-    * Highlights UI elements dynamically
+        Research Institutes & Fabricators: These use is_staffed via the workforce system (5/15 workers), but also have specialist requirements (Fabricators need specialists to produce). Make sure Research Institutes count as specialist-driven (they consume workforce in code, but conceptually they should perhaps require a scientist). If needed, treat Research Institutes like service buildings for assignment (or simply assume any staffed researcher is effectively a specialist given the high workforce cost).
 
-13. **Game Flow Polish**
+    Workforce Auto-Allocation: Review the current automatic workforce assignment for Extractors, Bio-Domes, etc.
+     
+     
+    . This system reserves a fixed number of inhabitants per building (e.g. 5 per Extractor). Ensure these values make sense and are exposed to the player (perhaps in building tooltips “Requires 5 workers”). If the player runs out of general workforce, the tutorial already warns “You’re out of workers” prompting building more housing and food
+    file-r7wuncmjq2cj6cutt1fydt
+    . Test that scenario to ensure the game recovers when new population arrives.
 
-    * Alert system: civic problems, power outage, resource cap
-    * Onboarding: first hour flow, unlocks and guidance
-    * SFX / visual polish for feedback
+    Specialist Capacity and Limits: Use the total_specialist_slots computed from housing tiers and zones
+     
+     
+    to enforce an upper bound on specialists. This represents how many specialists the colony can support (advanced housing and certain zones likely increase this). When the player tries to assign beyond the limit, block it and inform “Not enough specialist accommodation available.” The code already updates this and caps assigned_specialists_total when removing housing
+     
+    ; ensure it’s respected on assignment too.
 
----
+    Feedback for Understaffing: It should be obvious to the player when a building is lacking required specialists or workers. Implement icon overlays on buildings (in any map view) or list entries: e.g., a small person icon with a red X if a facility is inactive due to no staff. Also, in the building detail UI, show “Staffed: X/Y” and highlight in red if below required. This applies to services (needing at least 1 specialist to be effective
+     
+     
+    ), zones (needing specialists to generate income), and advanced production buildings.
 
-**FUTURE / OPTIONAL**
+Services & Civic Happiness
 
-* Procedural maps
-* Crisis events: fires, disease, rebellion
-* Economic trade system
-* Citizen detail view / simulation
-* AI Governor automation mode
+    Implement All Service Buildings: Ensure each service type (Wellness, Security, Education, Recreation, Spiritual) can be constructed and functions. The data for tiers (Clinic/Hospital, Security Post/Precinct, etc.) is defined with specialist requirements, capacities, radii
+     
+     
+    . Verify that get_service_building_tiers() covers all intended tiers and that add_service_building() works for each type
+     
+     
+    . For any missing service or tier (e.g. if design calls for two tiers of each), add them. When a service building is built, add it to game_state.service_buildings and call update_civic_index()
+     
+     
+    .
+
+    Service Coverage Effects: The service_coverage_system is in place to compute coverage ratios for each service
+     
+     
+    . Double-check its logic:
+
+        It sums capacity of active, staffed service buildings within range of at least one housing structure
+         
+         
+        .
+
+        It then divides by total population to get a coverage ratio
+         
+        .
+        This yields a value 0.0 to 1.0 per service. Ensure that this ratio is used in the happiness calculation: it is (each fully covered service gives +5 happiness, partial deficits give negative)
+         
+         
+        . Test extremes (no coverage vs. full coverage) to see that happiness responds (and triggers the tutorial event at 70% threshold
+        file-r7wuncmjq2cj6cutt1fydt
+        ). If needed, adjust the happiness impact per service to balance (currently ± up to 5 points each).
+
+    Happiness Calculation & Feedback: The happiness system takes into account food supply, housing crowding, service coverage, and Legacy bonuses
+     
+     
+    . Verify all parts:
+
+        Food: +10 if Nutrient Paste available, -25 if not
+         
+        .
+
+        Housing: penalty for homeless, small bonus if occupancy is low
+         
+        .
+
+        Services: +5 for 100% coverage each, penalty if coverage <100%
+         
+        .
+
+        Legacy: add happiness_bonus from any built Legacy tier
+         
+        .
+
+        Civic Index: converts to up to +5 happiness
+         
+        .
+        After computing, it clamps 0–100 and stores in colony_happiness
+         
+        . Expose this happiness score to the player: a happiness meter or percentage in the UI (e.g. “Morale: 75%”). Provide a breakdown tooltip of major factors (e.g. “+10 food, -4 homeless, +5 security, … = 75”). This helps players diagnose issues making citizens unhappy.
+
+    Civic Index and Unrest: The Civic Index (formerly social class measure) accumulates from active services and zones
+     
+     
+    . It currently slightly boosts happiness (capped at +5)
+     
+    . Ensure that whenever a service building or zone is added/removed or activated/deactivated, update_civic_index() is called to keep this updated
+     
+     
+    . Possibly incorporate unrest events: if happiness falls too low (<30 triggers an alert
+     
+    ), consider minor consequences (not fully in scope, but maybe reduced productivity or random protest notification). This can be a polish item for immersion.
+
+    Service Radius Visualization: For better planning, allow players to see service coverage areas. When placing or selecting a service building, draw a translucent circle on the map representing its influence radius (e.g. 50 units) so the player knows which housing structures are covered. Although the game is not grid-based visually, approximate positions can be used (the position: Option<(f32,f32)> exists for buildings
+     
+    ). This is a polish task that greatly aids understanding of service effectiveness.
+
+    Education and Specialists: The Education service might have a special role (e.g. increasing specialist training or efficiency). Currently it just counts toward happiness coverage. If intended, implement a bonus: for instance, if an Education Node is active, perhaps increase the rate at which inhabitants can be assigned as specialists or a slight research speed boost. This wasn’t explicit in code, but the design hints at “unlocks advanced research, raises specialist efficiency”
+     
+    . Even a simple approach like “each School active grants +1 max specialist beyond normal slot caps” or “+X% research speed” would fulfill this. Document any such effect in the UI so players know Education isn’t just for happiness.
+
+    UI: Services Panel: Create a dedicated UI panel or section in the colony status that lists all service coverages. For example: “Healthcare: 80% coverage” with green/yellow/red coloring. This can just pull from ServiceCoverage.coverage map updated each tick. Also list total happiness. This overview helps players quickly see which civic need is lagging (and thus what to build next). The tutorial’s “Civic Crisis” step will be easier to understand if the player can check a panel to see, say, Security coverage is 0% prompting a Security Station build.
+
+Research & Tech Tree
+
+    Tech Tree Data & Prerequisites: Finish defining the Tech enum and any dependencies. We have techs like Basic Construction Protocols, Efficient Extraction, Advanced Fabrication, Industrial Processing, Zoning Ordinances, Arcology Construction
+     
+    . Map out their prerequisite relationships (e.g. maybe Efficient Extraction requires Basic Construction done first, etc.). Implement a structure to hold these prerequisites if needed (could be as simple as an HashMap<Tech, Tech> or list for each). For now, since the tech list is short, you could enforce order in the UI (e.g. don’t allow selecting Efficient Extraction until Basic Construction is unlocked). Make sure high-tier techs like Arcology Construction (for DP3 buildings) are gated behind earlier tech or Development Phase.
+
+    Research Selection UI: The Research Panel should list available techs and allow the player to start a project. Use the SelectedTech resource and the initiate_research_button_system to set game_state.research_progress = Some((tech, 0.0)) when a tech is chosen. Display each tech with its name, description (if any), and cost (the tech_costs values in research points)
+     
+    . Disable or hide techs that are already unlocked (move them to an “Unlocked Technologies” list perhaps) or not yet available due to prerequisites. When a research is in progress, highlight it and show a progress bar or percentage (progress/current cost). For example: “Researching Efficient Extraction: 40%”.
+
+    Research Progress Mechanics: The research_system currently increments progress by 1.0 per tick if any Research Institute is staffed
+     
+     
+    . We should integrate resource or specialist effects if desired: e.g. require at least one Specialist assigned to a Research Institute to allow progress (the system already checks is_staffed on all institutes
+     
+    , so that covers needing at least one). We could extend this: multiple staffed institutes could multiply research speed (not implemented yet, but consider summing staff or one tech at a time anyway). For now, one tick = one research point if there is at least 1 staffed lab, which is fine. If design dictates research might also cost resources (some games consume e.g. credits or rare materials for tech), consider adding a cost deduction when starting or finishing research. Otherwise, leave it time-based.
+
+    Unlock Effects: Tie tech completion to gameplay effects:
+
+        When a tech is completed, add it to unlocked_techs
+         
+        and issue a notification (“Research complete: X unlocked!”). The UI should mark that tech as unlocked and perhaps automatically open new build options.
+
+        Any buildings or upgrades that require that tech should now be enabled. This means the Construction UI filtering needs to consider unlocked_techs in addition to development phase. For example, Storage Silo and Research Institute require Basic Construction Protocols: the UI meta data already has required_tech: Some(BasicConstructionProtocols)
+         
+        , so implement filtering so that until that tech is in unlocked_techs, those entries are either hidden or shown as locked. You might add a check in update_construction_list_system for Operations category to .filter(|(_, meta)| meta.required_tech.map_or(true, |t| game_state.unlocked_techs.contains(&t))).
+
+        Similarly, tech Zoning Ordinances is required for higher-tier Commercial/Industry zones
+         
+         
+        ; ensure once unlocked, the UI allows those tier 2 zone buttons.
+
+    Multiple Research Projects & Queue (Optional): For beta it’s acceptable to allow only one project at a time (since research_progress is a single Option). But consider allowing the player to queue or select another tech after one finishes. At minimum, once one tech completes, the UI should clear the “in progress” state and let the player choose another. Also, if the player clicks a different tech while one is in progress, decide if that’s allowed (maybe cancel the current research). A simple approach: do not allow switching – require them to cancel first. You could implement a “Cancel Research” button that sets research_progress=None (with maybe a penalty of lost progress or just free cancel).
+
+    Research Balancing: Calibrate research point costs and availability. We want research to pace the mid-game: e.g. Basic Construction Protocols (100 points) should take a modest amount of time with one lab (a few in-game minutes), while Arcology Construction (1000 points) is end-game and should feel significant. If players can build multiple Research Institutes, you might increase research speed or allow parallel projects (though not implemented now). Since specialists might be the limiting factor (each institute needs staff), the effective research speed is self-balanced. Test that by the time a player expands to DP2, they can reasonably finish the tech needed for DP3, etc., without grinding excessively or, conversely, blowing through the tech tree too fast.
+
+    Tech Tree Visual (Polish): If time permits, present the techs in a logical layout (doesn’t have to be a full graph). Even a simple vertical list with indentation or arrows like:
+
+        Basic Construction Protocols → (unlocks Storage Silo, Research Institute)
+
+        Efficient Extraction → (unlocks Extractor upgrade or production boost)
+
+        etc.
+        This helps players plan. At least indicate in each tech’s description what it enables (e.g. “Unlocks Fabricator building” or “Allows Zone upgrades”). This info can come from design notes or just be deduced from required_tech fields on buildings.
+
+Progression & Development Phases
+
+    Administrative Spire Implementation: Tie the Development Phase (DP) system to the Administrative Spire structure as designed. Currently, construct_administrative_spire() creates a Spire at tier0 (Command Post, DP1) and sets current_development_phase = DP1
+     
+     
+    . Ensure the player is required to build this Spire to truly enter DP1 (initially, perhaps they start with a small Hub that supports only basic structures). If the game starts with DP1 by default, consider gating some DP1 content until the Command Post is built (maybe the Hub can only place Extractor/BioDome until Spire exists – up to design). More importantly, implement Spire Upgrades: allow the Spire to upgrade to Sector HQ (DP2) and Nexus Spire (DP3) by spending credits and meeting requirements
+     
+     
+    . The upgrade_administrative_spire() logic is mostly in place to check credit cost, power availability, and Nutrient Paste link
+     
+     
+    . Hook this to a UI button on the Dashboard (“Upgrade Spire to DP2”) that is enabled only if requirements are met. When upgraded, set current_development_phase to DP2 or DP3 accordingly
+     
+    and fire a notification.
+
+    Phase-based Unlocks: Audit all buildings and features to ensure they respect the current development phase:
+
+        Use required_dp metadata for build options in the UI: e.g. Fabricator and ProcessingPlant have required_dp: Some(DP2)
+         
+        , meaning they should be hidden until the colony is in DP2. The construction list filtering already checks this
+         
+         
+        . Test that after upgrading Spire to DP2, those items now appear.
+
+        Possibly restrict some techs or upgrades by phase: for instance, Arcology Construction tech is essentially DP3 content; you might choose to only allow starting that research once DP2 is reached or Spire tier2 built. This is optional – the design might allow researching ahead of phase.
+
+        If any building implicitly belongs to DP3 (e.g. Arcology habitation, or Legacy projects), enforce DP3 requirement similarly.
+
+    Legacy Structure (Endgame) Integration: Enable the construction of the Legacy Structure once the colony is in the final phase. Provide a UI element (perhaps on the Dashboard “Legacy” panel) to construct the Genesis Monument (tier1 of Legacy) when conditions are met. The construct_legacy_structure() function checks a large credit cost and deducts it, creating the LegacyStructure in game_state
+     
+     
+    . We should also require that the victory preconditions are met (max population, 100% happiness, full tech tree as per design
+     
+    ) – if not explicitly coded, we can simply rely on the player naturally achieving those by the time they can afford it. However, to enforce design: add checks for those conditions before allowing construction. At least, check if DP3 is achieved (Spire maxed) and maybe all techs unlocked; if not, the Legacy build button should be disabled with tooltip “Require DP3 and all technologies”.
+
+    Legacy Progression: If the Legacy structure has multiple tiers (the code shows two tiers: Genesis Monument then Unity Beacon)
+     
+     
+    , implement the upgrade cycle. After building the first tier, allow upgrade to second via upgrade_legacy_structure()
+     
+     
+    , which checks credit cost and then advances current_tier_index. Attach this to a UI button (“Complete Unity Beacon”) that appears when tier1 is built. Ensure the happiness and income bonuses from each tier are applied (they are added in happiness calc and income calc already
+     
+     
+    ).
+
+    Victory/End State: Decide on the endgame condition for beta. Likely, constructing the final Legacy tier signifies winning. Implement a victory trigger when legacy_structure.current_tier_index reaches the last tier and it’s built. This could simply fire a special notification or pop-up (“Colony project complete – Legacy achieved! Thanks for playing.”). Optionally, transition to a victory screen or loop back to freeplay mode. The design also mentions possible “New Game+” or continued play, but for beta a basic victory message suffices. Make sure this condition is reachable with reasonable effort so testers can experience it.
+
+    Progression Balance & Testing: Playtest the flow from DP1 through DP3. The sequence should be:
+
+        DP1: Player establishes basics (power, mining, food, housing). Once stable, build Administrative Spire (if not already required from start).
+
+        Mid DP1: Research basic techs (unlock silo, lab), expand.
+
+        DP2: Upgrade Spire to Sector HQ (requires some food supply link – code checks Nutrient Paste in storage
+         
+        ). Now higher buildings unlock (fabricator, etc.), specialists become more important, and civic services likely needed to keep happiness up as pop grows.
+
+        Mid DP2: Research advanced tech (industrial, zoning), build zones for income, bigger housing if Arcology tech done.
+
+        DP3: Upgrade Spire to Nexus Spire, unlocking final techs and Legacy project.
+
+        End: Accumulate required resources/credits to build the Legacy monument and upgrades.
+        Ensure this arc is achievable within a reasonable play time and without any feature blocking progress (e.g. if happiness locks growth too hard or research is too slow, adjust parameters). Use the in-game tutorial as a guide; it touches on all these milestones, so if you can follow the tutorial prompts and reach the end, the progression is sound.
+
+User Interface & UX Improvements
+
+    Dashboard & HUD: Finalize the main HUD panels:
+
+        Resource Bar: Already shows Credits, Power, Population, Workforce, and key resources
+         
+        . Make sure these values update live (e.g. after each tick or when resource changes). For Power, consider showing both current generation and consumption (e.g. “⚡ 120/100” for gen/cons).
+
+        Notifications Ticker: Implement the Dashboard notifications list. The update_dashboard_notifications_system should take recent notifications and display them in a scrolling area or log. Limit to last ~5 messages visible, with older ones scrollable if needed. Ensure that alerts (with “ALERT:” text) maybe use a red highlight to stand out.
+
+        App Drawer: The top menu for switching panels (Dashboard, Construction, Status, Research) is defined by AppDrawerButton components. Verify that clicking these toggles the correct panel visibility via manage_app_panels_visibility. The panel build functions (like ConstructionPanel::build, ResearchPanel::build) should be called at startup to create the UI hierarchy.
+
+    Construction Panel Workflow: Complete the construction UI so it’s intuitive:
+
+        Four category tabs (Operations, Habitation, Services, Zones) switch the list content
+         
+         
+        . Ensure each category shows the correct build options with appropriate enable/disable states. Test that when you upgrade the Spire or unlock a tech, if the current category is impacted, the list refreshes (the system is checking game_state.is_changed() which should catch phase or tech changes if those mark GameState dirty).
+
+        Item selection populates the Details panel with name, workforce required, resource costs, and required tech/phase info
+         
+         
+        . This text is already set up; just confirm formatting and that Required Tech: X shows if locked.
+
+        The “Construct” button actually triggers building placement. Currently, pressing it directly calls the add_X functions and posts a notification (“Construction started: X”)
+         
+         
+        . This implies construction is instantaneous. If that’s acceptable for beta, keep it. (If a construction timer was desired, it’s not implemented – likely not needed now).
+
+        After construction, possibly allow placement positioning. Right now, add_habitation_structure and others take an optional position but it’s always None in UI calls
+         
+         
+        . If the game will eventually have a spatial layout, you might implement a temporary simple placement: e.g., assign a default position or allow the player to click on a map. For beta, it’s fine to assume an abstract placement (all structures exist in the colony without a map).
+
+    Managed Structures & Status Panels: Use the Colony Status panel to display aggregate stats (total housing, jobs, happiness, etc.). The ColonyStats resource is updated each tick
+     
+    – bind those values into the UI. For example, show “Housing: 40 (used) / 50 (total)” and “Jobs filled: 30 / 30” etc.
+
+        The Managed Structures panel (maybe part of Dashboard) should list currently built structures and allow upgrades or staffing changes easily. For instance, list all Fabricators with an “Upgrade” button if tier < max (calls upgrade_fabricator()), and a display of assigned specialists with +/- controls. Similarly list Habitation structures (dwellings) with upgrade/remove options. The code has upgrade_habitation_structure() and remove_habitation_structure() ready
+         
+         
+        . Provide UI hooks for those (e.g. an Upgrade arrow next to each housing if tech allows next tier).
+
+        Make sure removing structures is confirmed (to avoid accidental deletes) and that removal updates state (which it does by adjusting population if needed
+         
+         
+        ).
+
+    Tutorial Tooltips Integration: Integrate the first-hour tutorial tooltips to guide new players:
+
+        The steps in first_hour_tooltips.rs define triggers and messages for critical moments (placing Hub, power issues, running out of workers, etc.)
+        file-r7wuncmjq2cj6cutt1fydt
+        file-r7wuncmjq2cj6cutt1fydt
+        . Implement the trigger functions (e.g. has_entity_with_tag(world, "operations_hub") should return true when the Operations Hub building is present in game state; you can tag the entity on spawn or check game_state fields).
+
+        When a trigger becomes true and the step hasn’t been completed, display the corresponding tooltip: likely a modal or overlay box with the title and content text. Use the ui_highlight field to highlight the relevant UI control (the UI tags like "build_menu.extractor" exist on the buttons
+         
+        ). You could, for example, flash the Extractor button.
+
+        Progress through the steps in order. Maintain TutorialState.current_step and mark steps completed when their required action (if any) is done. For instance, after the player builds the Power Relay as instructed, move to the next step about resources.
+
+        Test the entire sequence to ensure it matches the actual game flow. Adjust any steps if the game logic changed (e.g. if we made food consumption harder, ensure the “Need More Citizens – build housing and food” still triggers appropriately when specialists are exhausted
+        file-r7wuncmjq2cj6cutt1fydt
+        ).
+
+    Polish & Accessibility: Add general polish to the UI:
+
+        Use consistent styling for all buttons and text (colors defined in ui/mod.rs). Disable buttons when not usable and give hover tooltips explaining why (for example, hover on a disabled Fabricator might say “Requires Development Phase 2”).
+
+        Make sure the game is playable at different resolutions (if using Bevy UI scale). Test UI scaling – use flex layouts to accommodate resizing if possible.
+
+        Add small sound effects for important actions (click, build, research complete) if assets are available, to enhance feedback (optional for beta but improves feel).
+
+        Ensure that critical information is always visible or easily accessible – for instance, if power or food is low, the player shouldn’t have to dig through menus to find out. The alerts and top HUD should cover this, but verify during testing.
+
+    Bug Fixes & UX Tweaks: During final testing, keep a checklist of any user experience pain points and address them:
+
+        E.g., if players forget to assign specialists and wonder why a building isn’t working, consider a one-time tooltip or highlight on the specialist UI reminding them.
+
+        If the colony hits a failure state (zero food, or negative credits disabling everything), provide guidance to recover (perhaps a tooltip like “Build more Bio-Domes or reduce consumption”).
+
+        Double-check text content (grammar, clarity of descriptions) since beta users will judge the game by how understandable it is. Update any placeholder names to final ones (the design doc renamed many concepts, ensure UI text uses “Inhabitants”, “Habitation Sector”, etc., consistently).
+
+        Finally, remove or hide any developer/debug UI elements that aren’t intended for beta players (or conversely, add a rudimentary debug panel if needed to aid internal testing, but not in normal gameplay).
+
+By following this roadmap, each major gameplay system – from power and economy to population, civics, and tech – will be implemented and integrated in a logical order. The steps ensure foundational systems (power, resource, population loops) come first, enabling more advanced features (specialists, research, progression) to layer on with minimal friction. The UI/UX checklist items guarantee that all these mechanics are exposed to the player clearly, paving the way for a robust beta release of Nexus Core: Colony Manager. Each task above, once completed and checked off, brings the game closer to feature-complete status for beta testing, without any major gaps in functionality or player guidance
