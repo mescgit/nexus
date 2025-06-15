@@ -16,30 +16,176 @@ use super::*;
 pub(super) struct ColonyStatusPanel;
 #[derive(Component)]
 pub(super) struct DiagnosticItem(pub DiagnosticType);
+#[derive(Component)]
+pub(super) struct PopulationStatusText;
+#[derive(Component)]
+pub(super) struct PopulationFactorsText;
 
 pub(super) fn build(viewport: &mut ChildBuilder, _assets: &Res<AssetServer>) {
 
-                viewport.spawn((NodeBundle { style: Style {display: Display::None, width: Val::Percent(100.0), height:Val::Percent(100.0), flex_direction: FlexDirection::Column, ..default()}, ..default() }, ColonyStatusPanel))
-                .with_children(|status| {
-                    status.spawn(TextBundle::from_section("COLONY STATUS", TextStyle{font_size: 28.0, color: BORDER_COLOR, ..default()}).with_style(Style{margin: UiRect::bottom(Val::Px(10.0)), ..default()}));
-                    status.spawn(TextBundle::from_section("NEEDS DIAGNOSTIC", TextStyle{font_size: 20.0, color: LABEL_TEXT_COLOR, ..default()}).with_style(Style{margin: UiRect::bottom(Val::Px(10.0)), ..default()}));
-                    let diagnostics = [DiagnosticType::NutrientPaste, DiagnosticType::Housing, DiagnosticType::Healthcare, DiagnosticType::Security, DiagnosticType::Recreation, DiagnosticType::Education];
-                    for diag_type in diagnostics {
-                        status.spawn((
-                            TextBundle::from_section(format!("{:?}", diag_type), TextStyle{font_size: 18.0, color: PRIMARY_TEXT_COLOR, ..default()})
-                                .with_style(Style{ margin: UiRect::bottom(Val::Px(5.0)), ..default()}),
-                            DiagnosticItem(diag_type)
-                        ));
-                    }
-                });
+    viewport
+        .spawn((
+            NodeBundle {
+                style: Style {
+                    display: Display::None,
+                    width: Val::Percent(100.0),
+                    height: Val::Percent(100.0),
+                    flex_direction: FlexDirection::Column,
+                    ..default()
+                },
+                ..default()
+            },
+            ColonyStatusPanel,
+        ))
+        .with_children(|status| {
+            status.spawn(
+                TextBundle::from_section(
+                    "COLONY STATUS",
+                    TextStyle {
+                        font_size: 28.0,
+                        color: BORDER_COLOR,
+                        ..default()
+                    },
+                )
+                .with_style(Style {
+                    margin: UiRect::bottom(Val::Px(10.0)),
+                    ..default()
+                }),
+            );
+
+            status.spawn(
+                TextBundle::from_section(
+                    "POPULATION",
+                    TextStyle {
+                        font_size: 20.0,
+                        color: LABEL_TEXT_COLOR,
+                        ..default()
+                    },
+                )
+                .with_style(Style {
+                    margin: UiRect::bottom(Val::Px(5.0)),
+                    ..default()
+                }),
+            );
+            status.spawn((
+                TextBundle::from_section(
+                    "Population: 0 / 0",
+                    TextStyle {
+                        font_size: 18.0,
+                        color: PRIMARY_TEXT_COLOR,
+                        ..default()
+                    },
+                )
+                .with_style(Style {
+                    margin: UiRect::bottom(Val::Px(2.0)),
+                    ..default()
+                }),
+                PopulationStatusText,
+            ));
+            status.spawn((
+                TextBundle::from_section(
+                    "",
+                    TextStyle {
+                        font_size: 14.0,
+                        color: LABEL_TEXT_COLOR,
+                        ..default()
+                    },
+                )
+                .with_style(Style {
+                    margin: UiRect::bottom(Val::Px(10.0)),
+                    ..default()
+                }),
+                PopulationFactorsText,
+            ));
+
+            status.spawn(
+                TextBundle::from_section(
+                    "NEEDS DIAGNOSTIC",
+                    TextStyle {
+                        font_size: 20.0,
+                        color: LABEL_TEXT_COLOR,
+                        ..default()
+                    },
+                )
+                .with_style(Style {
+                    margin: UiRect::bottom(Val::Px(10.0)),
+                    ..default()
+                }),
+            );
+
+            let diagnostics = [
+                DiagnosticType::NutrientPaste,
+                DiagnosticType::Housing,
+                DiagnosticType::Healthcare,
+                DiagnosticType::Security,
+                DiagnosticType::Recreation,
+                DiagnosticType::Education,
+            ];
+            for diag_type in diagnostics {
+                status.spawn((
+                    TextBundle::from_section(
+                        format!("{:?}", diag_type),
+                        TextStyle {
+                            font_size: 18.0,
+                            color: PRIMARY_TEXT_COLOR,
+                            ..default()
+                        },
+                    )
+                    .with_style(Style {
+                        margin: UiRect::bottom(Val::Px(5.0)),
+                        ..default()
+                    }),
+                    DiagnosticItem(diag_type),
+                ));
+            }
+        });
 }
 pub(super) fn update_colony_status_panel_system(
     game_state: Res<GameState>,
-    mut query: Query<(&mut Text, &DiagnosticItem)>,
+    mut diag_query: Query<(&mut Text, &DiagnosticItem)>,
+    mut pop_status_query: Query<&mut Text, With<PopulationStatusText>>,
+    mut pop_factors_query: Query<&mut Text, With<PopulationFactorsText>>,
 ) {
     if !game_state.is_changed() { return; }
 
-    for (mut text, item) in query.iter_mut() {
+    // Update population summary
+    if let Ok(mut pop_text) = pop_status_query.get_single_mut() {
+        let has_housing = game_state.total_inhabitants < game_state.available_housing_capacity;
+        let has_food = game_state.simulated_has_sufficient_nutrient_paste;
+        let happy = game_state.colony_happiness > 50.0;
+
+        let (status_str, color) = if !has_food {
+            ("No Food", Color::RED)
+        } else if !has_housing {
+            ("No Housing", Color::RED)
+        } else if !happy {
+            ("Unhappy", Color::YELLOW)
+        } else {
+            ("Growing", Color::GREEN)
+        };
+
+        pop_text.sections[0].value = format!(
+            "Population: {} / {} ({})",
+            game_state.total_inhabitants,
+            game_state.available_housing_capacity,
+            status_str
+        );
+        pop_text.sections[0].style.color = color;
+
+        if let Ok(mut factors_text) = pop_factors_query.get_single_mut() {
+            let housing = if has_housing { "Housing OK" } else { "No Housing" };
+            let food = if has_food { "Food OK" } else { "Food LOW" };
+            factors_text.sections[0].value = format!(
+                "{}, {}, Happiness {:.0}%",
+                housing,
+                food,
+                game_state.colony_happiness
+            );
+            factors_text.sections[0].style.color = color;
+        }
+    }
+
+    for (mut text, item) in diag_query.iter_mut() {
         let (status_text, color) = match item.0 {
             DiagnosticType::NutrientPaste => {
                 let status = game_state.simulated_has_sufficient_nutrient_paste;
