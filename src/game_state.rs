@@ -1419,109 +1419,58 @@ fn generate_income_system(game_state: &mut GameState) {
 }
 
 fn deduct_upkeep_system(game_state: &mut GameState) {
-    let mut total_upkeep_to_deduct_this_tick = 0.0;
+    let mut remaining_credits = game_state.credits;
     let mut civic_index_needs_update = false;
 
-    let initial_credits = game_state.credits;
-
-    let mut potential_total_upkeep = 0.0;
-    for building in &game_state.service_buildings { if building.is_active { if let Some(tier) = building.available_tiers.get(building.current_tier_index) { potential_total_upkeep += tier.upkeep_cost as f64; } } }
-    for zone in &game_state.zones { if zone.is_active { if let Some(tier) = zone.available_tiers.get(zone.current_tier_index) { potential_total_upkeep += tier.upkeep_cost as f64; } } }
-    for fab in &game_state.fabricators { if fab.is_active { if let Some(tier) = fab.available_tiers.get(fab.tier_index) { potential_total_upkeep += tier.upkeep_cost as f64; } } }
-    for plant in &game_state.processing_plants { if plant.is_active { if let Some(tier) = plant.available_tiers.get(plant.tier_index) { potential_total_upkeep += tier.upkeep_cost as f64; } } }
-
-    if initial_credits >= potential_total_upkeep {
-        total_upkeep_to_deduct_this_tick = potential_total_upkeep;
-    } else {
-        println!("Warning: Insufficient credits ({:.2}) to cover all upkeep ({:.2}). Deactivating buildings.", initial_credits, potential_total_upkeep);
-
-        for fab in game_state.fabricators.iter_mut() {
-            if fab.is_active {
-                if let Some(tier) = fab.available_tiers.get(fab.tier_index) {
-                    if initial_credits
-                        < (total_upkeep_to_deduct_this_tick + tier.upkeep_cost as f64)
-                    {
-                        fab.is_active = false;
-                        add_notification(
-                            &mut game_state.notifications,
-                            format!("Fabricator {} deactivated: unpaid upkeep", fab.id),
-                            0.0,
-                        );
-                        println!("Deactivated Fabricator {}", fab.id);
-                    } else {
-                        total_upkeep_to_deduct_this_tick += tier.upkeep_cost as f64;
-                    }
-                }
+    let mut process_building = |cost: u32, is_active: &mut bool, id: &str, notif: &str| {
+        if remaining_credits >= cost as f64 {
+            remaining_credits -= cost as f64;
+            if !*is_active {
+                *is_active = true;
             }
-        }
-        for plant in game_state.processing_plants.iter_mut() {
-            if plant.is_active {
-                if let Some(tier) = plant.available_tiers.get(plant.tier_index) {
-                    if initial_credits
-                        < (total_upkeep_to_deduct_this_tick + tier.upkeep_cost as f64)
-                    {
-                        plant.is_active = false;
-                        add_notification(
-                            &mut game_state.notifications,
-                            format!("Processing Plant {} deactivated: unpaid upkeep", plant.id),
-                            0.0,
-                        );
-                        println!("Deactivated Processing Plant {}", plant.id);
-                    } else {
-                        total_upkeep_to_deduct_this_tick += tier.upkeep_cost as f64;
-                    }
-                }
+            true
+        } else {
+            if *is_active {
+                *is_active = false;
+                add_notification(&mut game_state.notifications, format!("{} deactivated: unpaid upkeep", id), 0.0);
             }
+            false
         }
-        for zone in game_state.zones.iter_mut() {
-            if zone.is_active {
-                if let Some(tier) = zone.available_tiers.get(zone.current_tier_index) {
-                    if initial_credits
-                        < (total_upkeep_to_deduct_this_tick + tier.upkeep_cost as f64)
-                    {
-                        zone.is_active = false;
-                        civic_index_needs_update = true;
-                        add_notification(
-                            &mut game_state.notifications,
-                            format!("Zone {} deactivated: unpaid upkeep", zone.id),
-                            0.0,
-                        );
-                        println!("Deactivated Zone {}", zone.id);
-                    } else {
-                        total_upkeep_to_deduct_this_tick += tier.upkeep_cost as f64;
-                    }
-                }
-            }
+    };
+
+    for fab in game_state.fabricators.iter_mut() {
+        if let Some(tier) = fab.available_tiers.get(fab.tier_index) {
+            process_building(tier.upkeep_cost, &mut fab.is_active, &format!("Fabricator {}", fab.id), "Fabricator");
         }
-        for building in game_state.service_buildings.iter_mut() {
-            if building.is_active {
-                if let Some(tier) = building.available_tiers.get(building.current_tier_index) {
-                    if initial_credits
-                        < (total_upkeep_to_deduct_this_tick + tier.upkeep_cost as f64)
-                    {
-                        building.is_active = false;
-                        civic_index_needs_update = true;
-                        add_notification(
-                            &mut game_state.notifications,
-                            format!("Service Building {} deactivated: unpaid upkeep", building.id),
-                            0.0,
-                        );
-                        println!("Deactivated Service Building {}", building.id);
-                    } else {
-                        total_upkeep_to_deduct_this_tick += tier.upkeep_cost as f64;
-                    }
-                }
+    }
+
+    for plant in game_state.processing_plants.iter_mut() {
+        if let Some(tier) = plant.available_tiers.get(plant.tier_index) {
+            process_building(tier.upkeep_cost, &mut plant.is_active, &format!("Processing Plant {}", plant.id), "Processing Plant");
+        }
+    }
+
+    for zone in game_state.zones.iter_mut() {
+        if let Some(tier) = zone.available_tiers.get(zone.current_tier_index) {
+            let was_active = zone.is_active;
+            process_building(tier.upkeep_cost, &mut zone.is_active, &format!("Zone {}", zone.id), "Zone");
+            if was_active != zone.is_active {
+                civic_index_needs_update = true;
             }
         }
     }
 
-    if total_upkeep_to_deduct_this_tick > 0.0 {
-        game_state.credits -= total_upkeep_to_deduct_this_tick;
-        if game_state.credits < 0.0 {
-            println!("Critical Warning: Credits still went negative ({:.2}) after deactivations!", game_state.credits);
-            game_state.credits = 0.0;
+    for building in game_state.service_buildings.iter_mut() {
+        if let Some(tier) = building.available_tiers.get(building.current_tier_index) {
+            let was_active = building.is_active;
+            process_building(tier.upkeep_cost, &mut building.is_active, &format!("Service Building {}", building.id), "Service Building");
+            if was_active != building.is_active {
+                civic_index_needs_update = true;
+            }
         }
     }
+
+    game_state.credits = remaining_credits;
 
     if civic_index_needs_update {
         update_civic_index(game_state);
