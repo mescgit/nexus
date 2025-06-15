@@ -1,5 +1,7 @@
 use bevy::prelude::*;
-use crate::game_state::{self, GameState, ResourceType};
+use crate::game_state::{
+    self, GameState, ResourceType, BASE_STORAGE_CAPACITY, STORAGE_SILO_CAPACITY,
+};
 
 #[derive(Resource, Default)]
 pub struct AlertState {
@@ -46,7 +48,7 @@ fn alert_system(mut alert: ResMut<AlertState>, mut game_state: ResMut<GameState>
         alert.unrest = false;
     }
 
-    let capacity = 1000.0 + game_state.storage_silos.len() as f32 * 500.0;
+    let capacity = BASE_STORAGE_CAPACITY + game_state.storage_silos.len() as f32 * STORAGE_SILO_CAPACITY;
     let nearing_cap = game_state
         .current_resources
         .values()
