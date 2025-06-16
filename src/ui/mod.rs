@@ -32,6 +32,7 @@ const ACTIVE_BUTTON: Color = Color::rgba(0.1, 0.4, 0.8, 1.0);
 const PRIMARY_TEXT_COLOR: Color = Color::rgba(0.9, 0.9, 0.9, 0.9);
 const LABEL_TEXT_COLOR: Color = Color::rgba(0.7, 0.7, 0.8, 0.9);
 const DISABLED_BUTTON: Color = Color::rgba(0.3, 0.1, 0.1, 0.8);
+const ALERT_TEXT_COLOR: Color = Color::TOMATO;
 
 // --- UI Marker Components ---
 #[derive(Component)]

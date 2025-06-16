@@ -737,9 +737,14 @@ pub(super) fn update_dashboard_notifications_system(
             commands.entity(panel_entity).with_children(|parent| {
                 parent.spawn(TextBundle::from_section("EVENT LOG", TextStyle{font_size: 18.0, color: LABEL_TEXT_COLOR, ..default()}));
                 for event in game_state.notifications.iter().take(5) {
+                    let color = if event.message.starts_with("ALERT:") {
+                        ALERT_TEXT_COLOR
+                    } else {
+                        PRIMARY_TEXT_COLOR
+                    };
                     parent.spawn(TextBundle::from_section(
                         format!("[{:.1}] {}", event.timestamp, event.message),
-                        TextStyle { font_size: 14.0, color: PRIMARY_TEXT_COLOR, ..default() }
+                        TextStyle { font_size: 14.0, color, ..default() }
                     ).with_style(Style{ margin: UiRect::top(Val::Px(4.0)), ..default()}));
                 }
             });
