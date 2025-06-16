@@ -189,13 +189,29 @@ pub(super) fn update_construction_list_system(
                         }
 
                         for (building_type, meta) in items {
+                            let unlocked = meta
+                                .required_tech
+                                .map(|t| game_state.unlocked_techs.contains(&t))
+                                .unwrap_or(true);
                             let mut btn = parent.spawn((
-                                ButtonBundle { style: Style { width: Val::Percent(100.0), padding: UiRect::all(Val::Px(8.0)), margin: UiRect::bottom(Val::Px(4.0)), ..default() }, background_color: NORMAL_BUTTON.into(), ..default()},
+                                ButtonBundle {
+                                    style: Style { width: Val::Percent(100.0), padding: UiRect::all(Val::Px(8.0)), margin: UiRect::bottom(Val::Px(4.0)), ..default() },
+                                    background_color: if unlocked { NORMAL_BUTTON.into() } else { DISABLED_BUTTON.into() },
+                                    ..default()
+                                },
                                 ConstructionItemButton(*building_type)
                             ));
                             btn.insert(UiTag(tag_for_building(*building_type)));
                             btn.with_children(|p| {
                                 p.spawn(TextBundle::from_section(meta.name, TextStyle { font_size: 16.0, color: PRIMARY_TEXT_COLOR, ..default() }));
+                                if let Some(t) = meta.required_tech {
+                                    if !game_state.unlocked_techs.contains(&t) {
+                                        p.spawn(TextBundle::from_section(
+                                            format!("Requires {:?}", t),
+                                            TextStyle { font_size: 12.0, color: LABEL_TEXT_COLOR, ..default() }
+                                        ));
+                                    }
+                                }
                             });
                         }
                     },
@@ -203,10 +219,14 @@ pub(super) fn update_construction_list_system(
                         let habitation_tiers = game_state::get_habitation_tiers();
                         for (tier_index, tier) in habitation_tiers.iter().enumerate() {
                             let can_afford = game_state.credits >= tier.construction_credits_cost as f64;
+                            let unlocked = tier
+                                .required_tech
+                                .map(|t| game_state.unlocked_techs.contains(&t))
+                                .unwrap_or(true);
                             let mut btn = parent.spawn((
                                 ButtonBundle {
                                     style: Style { width: Val::Percent(100.0), padding: UiRect::all(Val::Px(8.0)), margin: UiRect::bottom(Val::Px(4.0)), ..default() },
-                                    background_color: if can_afford { NORMAL_BUTTON.into() } else { DISABLED_BUTTON.into() },
+                                    background_color: if can_afford && unlocked { NORMAL_BUTTON.into() } else { DISABLED_BUTTON.into() },
                                     ..default()
                                 },
                                 ConstructHabitationButton(tier_index)
@@ -219,6 +239,14 @@ pub(super) fn update_construction_list_system(
                                     format!("{} ({} Cr)", tier.name, tier.construction_credits_cost),
                                     TextStyle { font_size: 16.0, color: PRIMARY_TEXT_COLOR, ..default() }
                                 ));
+                                if let Some(t) = tier.required_tech {
+                                    if !game_state.unlocked_techs.contains(&t) {
+                                        p.spawn(TextBundle::from_section(
+                                            format!("Requires {:?}", t),
+                                            TextStyle { font_size: 12.0, color: LABEL_TEXT_COLOR, ..default() }
+                                        ));
+                                    }
+                                }
                             });
                         }
                     },
@@ -244,24 +272,38 @@ pub(super) fn update_construction_list_system(
 
                             for (tier_index, tier) in service_tiers.iter().enumerate() {
                                 let can_afford = game_state.credits >= tier.construction_credits_cost as f64;
-                                parent.spawn((
-                                    ButtonBundle {
-                                        style: Style {
-                                            width: Val::Percent(100.0),
-                                            padding: UiRect::all(Val::Px(8.0)),
-                                            margin: UiRect::bottom(Val::Px(4.0)),
+                                let unlocked = tier
+                                    .required_tech
+                                    .map(|t| game_state.unlocked_techs.contains(&t))
+                                    .unwrap_or(true);
+                                parent
+                                    .spawn((
+                                        ButtonBundle {
+                                            style: Style {
+                                                width: Val::Percent(100.0),
+                                                padding: UiRect::all(Val::Px(8.0)),
+                                                margin: UiRect::bottom(Val::Px(4.0)),
+                                                ..default()
+                                            },
+                                            background_color: if can_afford && unlocked { NORMAL_BUTTON.into() } else { DISABLED_BUTTON.into() },
                                             ..default()
                                         },
-                                        background_color: if can_afford { NORMAL_BUTTON.into() } else { DISABLED_BUTTON.into() },
-                                        ..default()
-                                    },
-                                    ConstructServiceButton(*service_type, tier_index)
-                                )).with_children(|p| {
-                                    p.spawn(TextBundle::from_section(
-                                        format!("{:?} - {} ({} Cr)", service_type, tier.name, tier.construction_credits_cost),
-                                        TextStyle { font_size: 16.0, color: PRIMARY_TEXT_COLOR, ..default() }
-                                    ));
-                                });
+                                        ConstructServiceButton(*service_type, tier_index)
+                                    ))
+                                    .with_children(|p| {
+                                        p.spawn(TextBundle::from_section(
+                                            format!("{:?} - {} ({} Cr)", service_type, tier.name, tier.construction_credits_cost),
+                                            TextStyle { font_size: 16.0, color: PRIMARY_TEXT_COLOR, ..default() }
+                                        ));
+                                        if let Some(t) = tier.required_tech {
+                                            if !game_state.unlocked_techs.contains(&t) {
+                                                p.spawn(TextBundle::from_section(
+                                                    format!("Requires {:?}", t),
+                                                    TextStyle { font_size: 12.0, color: LABEL_TEXT_COLOR, ..default() }
+                                                ));
+                                            }
+                                        }
+                                    });
                             }
                         }
                     },
@@ -280,24 +322,38 @@ pub(super) fn update_construction_list_system(
 
                             for (tier_index, tier) in zone_tiers.iter().enumerate() {
                                 let can_afford = game_state.credits >= tier.construction_credits_cost as f64;
-                                parent.spawn((
-                                    ButtonBundle {
-                                        style: Style {
-                                            width: Val::Percent(100.0),
-                                            padding: UiRect::all(Val::Px(8.0)),
-                                            margin: UiRect::bottom(Val::Px(4.0)),
+                                let unlocked = tier
+                                    .required_tech
+                                    .map(|t| game_state.unlocked_techs.contains(&t))
+                                    .unwrap_or(true);
+                                parent
+                                    .spawn((
+                                        ButtonBundle {
+                                            style: Style {
+                                                width: Val::Percent(100.0),
+                                                padding: UiRect::all(Val::Px(8.0)),
+                                                margin: UiRect::bottom(Val::Px(4.0)),
+                                                ..default()
+                                            },
+                                            background_color: if can_afford && unlocked { NORMAL_BUTTON.into() } else { DISABLED_BUTTON.into() },
                                             ..default()
                                         },
-                                        background_color: if can_afford { NORMAL_BUTTON.into() } else { DISABLED_BUTTON.into() },
-                                        ..default()
-                                    },
-                                    ConstructZoneButton(*zone_type, tier_index)
-                                )).with_children(|p| {
-                                    p.spawn(TextBundle::from_section(
-                                        format!("{:?} - {} ({} Cr)", zone_type, tier.name, tier.construction_credits_cost),
-                                        TextStyle { font_size: 16.0, color: PRIMARY_TEXT_COLOR, ..default() }
-                                    ));
-                                });
+                                        ConstructZoneButton(*zone_type, tier_index)
+                                    ))
+                                    .with_children(|p| {
+                                        p.spawn(TextBundle::from_section(
+                                            format!("{:?} - {} ({} Cr)", zone_type, tier.name, tier.construction_credits_cost),
+                                            TextStyle { font_size: 16.0, color: PRIMARY_TEXT_COLOR, ..default() }
+                                        ));
+                                        if let Some(t) = tier.required_tech {
+                                            if !game_state.unlocked_techs.contains(&t) {
+                                                p.spawn(TextBundle::from_section(
+                                                    format!("Requires {:?}", t),
+                                                    TextStyle { font_size: 12.0, color: LABEL_TEXT_COLOR, ..default() }
+                                                ));
+                                            }
+                                        }
+                                    });
                             }
                         }
                     }
@@ -332,18 +388,28 @@ pub(super) fn construction_item_interaction_system(
         })
     };
 
+    let meta_map = get_building_metadata();
     for (interaction, item_button, mut bg_color) in button_query.iter_mut() {
         let building_type = item_button.0;
         let is_selected = selected_building_res.0 == Some(building_type);
+        let unlocked = meta_map
+            .get(&building_type)
+            .and_then(|m| m.required_tech)
+            .map(|t| game_state.unlocked_techs.contains(&t))
+            .unwrap_or(true);
 
-        if is_selected { *bg_color = ACTIVE_BUTTON.into(); }
-        else if !can_afford(building_type) { *bg_color = DISABLED_BUTTON.into(); }
-        else { *bg_color = NORMAL_BUTTON.into(); }
+        if is_selected {
+            *bg_color = ACTIVE_BUTTON.into();
+        } else if !unlocked || !can_afford(building_type) {
+            *bg_color = DISABLED_BUTTON.into();
+        } else {
+            *bg_color = NORMAL_BUTTON.into();
+        }
 
-        if *interaction == Interaction::Pressed {
+        if *interaction == Interaction::Pressed && unlocked && can_afford(building_type) {
             selected_building_res.0 = if is_selected { None } else { Some(building_type) };
-        } else if *interaction == Interaction::Hovered && !is_selected && can_afford(building_type) {
-             *bg_color = HOVERED_BUTTON.into();
+        } else if *interaction == Interaction::Hovered && !is_selected && unlocked && can_afford(building_type) {
+            *bg_color = HOVERED_BUTTON.into();
         }
     }
 }
