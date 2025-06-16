@@ -317,6 +317,14 @@ pub fn add_processing_plant(game_state: &mut GameState, tier_index: usize) {
         return;
     }
     let tier_info = &all_tiers[tier_index];
+    if !game_state.unlocked_techs.contains(&Tech::BasicConstructionProtocols) {
+        add_notification(
+            &mut game_state.notifications,
+            "Requires BasicConstructionProtocols to build Processing Plant.".to_string(),
+            0.0,
+        );
+        return;
+    }
     if game_state.credits < tier_info.construction_credits_cost as f64 {
         add_notification(&mut game_state.notifications, format!("Not enough credits to build {}.", tier_info.name), 0.0);
         return;
@@ -809,6 +817,14 @@ pub fn add_fabricator(game_state: &mut GameState, tier_index: usize) {
         return;
     }
     let tier_info = &all_tiers[tier_index];
+    if !game_state.unlocked_techs.contains(&Tech::BasicConstructionProtocols) {
+        add_notification(
+            &mut game_state.notifications,
+            "Requires BasicConstructionProtocols to build Fabricator.".to_string(),
+            0.0,
+        );
+        return;
+    }
     if game_state.credits < tier_info.construction_credits_cost as f64 {
         add_notification(&mut game_state.notifications, format!("Not enough credits to build {}.", tier_info.name), 0.0);
         return;
@@ -1012,6 +1028,16 @@ pub fn add_habitation_structure(
     }
 
     let tier_info = &all_tiers[tier_index];
+    if let Some(tech) = tier_info.required_tech {
+        if !game_state.unlocked_techs.contains(&tech) {
+            add_notification(
+                &mut game_state.notifications,
+                format!("Requires {:?} to build {}.", tech, tier_info.name),
+                0.0,
+            );
+            return;
+        }
+    }
     if game_state.credits < tier_info.construction_credits_cost as f64 {
         add_notification(&mut game_state.notifications, format!("Not enough credits to build {}.", tier_info.name), 0.0);
         return;
@@ -1146,6 +1172,16 @@ pub fn add_service_building(game_state: &mut GameState, service_type: ServiceTyp
         return;
     }
     let tier_info = &all_tiers[tier_index];
+    if let Some(tech) = tier_info.required_tech {
+        if !game_state.unlocked_techs.contains(&tech) {
+            add_notification(
+                &mut game_state.notifications,
+                format!("Requires {:?} to build {}.", tech, tier_info.name),
+                0.0,
+            );
+            return;
+        }
+    }
     if game_state.credits < tier_info.construction_credits_cost as f64 {
         add_notification(&mut game_state.notifications, format!("Not enough credits to build {:?} - {}.", service_type, tier_info.name), 0.0);
         return;
@@ -1297,6 +1333,16 @@ pub fn add_zone(game_state: &mut GameState, zone_type: ZoneType, tier_index: usi
         return;
     }
     let tier_info = &all_tiers[tier_index];
+    if let Some(tech) = tier_info.required_tech {
+        if !game_state.unlocked_techs.contains(&tech) {
+            add_notification(
+                &mut game_state.notifications,
+                format!("Requires {:?} to build {}.", tech, tier_info.name),
+                0.0,
+            );
+            return;
+        }
+    }
     if game_state.credits < tier_info.construction_credits_cost as f64 {
         add_notification(&mut game_state.notifications, format!("Not enough credits to build {:?} - {}.", zone_type, tier_info.name), 0.0);
         return;
@@ -1807,8 +1853,24 @@ pub fn add_power_relay(game_state: &mut GameState) {
     game_state.power_relays.push(PowerRelayData { id: generate_unique_id() });
 }
 pub fn add_research_institute(game_state: &mut GameState) {
+    if !game_state.unlocked_techs.contains(&Tech::BasicConstructionProtocols) {
+        add_notification(
+            &mut game_state.notifications,
+            "Requires BasicConstructionProtocols to build Research Institute.".to_string(),
+            0.0,
+        );
+        return;
+    }
     game_state.research_institutes.push(ResearchInstituteData { id: generate_unique_id(), is_staffed: false });
 }
 pub fn add_storage_silo(game_state: &mut GameState) {
+    if !game_state.unlocked_techs.contains(&Tech::BasicConstructionProtocols) {
+        add_notification(
+            &mut game_state.notifications,
+            "Requires BasicConstructionProtocols to build Storage Silo.".to_string(),
+            0.0,
+        );
+        return;
+    }
     game_state.storage_silos.push(StorageSiloData { id: generate_unique_id() });
 }
