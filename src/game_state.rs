@@ -736,6 +736,14 @@ pub fn add_notification(notifications: &mut VecDeque<NotificationEvent>, message
     GameState::add_notification_internal(notifications, message, current_time_seconds);
 }
 
+pub fn ensure_tech(game_state: &mut GameState, tech: Tech, message: &str) -> bool {
+    if !game_state.unlocked_techs.contains(&tech) {
+        add_notification(&mut game_state.notifications, message.to_string(), 0.0);
+        return false;
+    }
+    true
+}
+
 pub fn get_fabricator_tiers() -> Vec<FabricatorTier> {
     vec![
         FabricatorTier {
@@ -982,6 +990,11 @@ pub fn add_habitation_structure(
     }
 
     let tier_info = &all_tiers[tier_index];
+    if let Some(req) = tier_info.required_tech {
+        if !ensure_tech(game_state, req, &format!("Requires {:?} to build {}.", req, tier_info.name)) {
+            return;
+        }
+    }
     if game_state.credits < tier_info.construction_credits_cost as f64 {
         add_notification(&mut game_state.notifications, format!("Not enough credits to build {}.", tier_info.name), 0.0);
         return;
@@ -1110,6 +1123,11 @@ pub fn add_service_building(game_state: &mut GameState, service_type: ServiceTyp
         return;
     }
     let tier_info = &all_tiers[tier_index];
+    if let Some(req) = tier_info.required_tech {
+        if !ensure_tech(game_state, req, &format!("Requires {:?} to build {:?} - {}.", req, service_type, tier_info.name)) {
+            return;
+        }
+    }
     if game_state.credits < tier_info.construction_credits_cost as f64 {
         add_notification(&mut game_state.notifications, format!("Not enough credits to build {:?} - {}.", service_type, tier_info.name), 0.0);
         return;
@@ -1232,6 +1250,11 @@ pub fn add_zone(game_state: &mut GameState, zone_type: ZoneType, tier_index: usi
         return;
     }
     let tier_info = &all_tiers[tier_index];
+    if let Some(req) = tier_info.required_tech {
+        if !ensure_tech(game_state, req, &format!("Requires {:?} to build {:?} - {}.", req, zone_type, tier_info.name)) {
+            return;
+        }
+    }
     if game_state.credits < tier_info.construction_credits_cost as f64 {
         add_notification(&mut game_state.notifications, format!("Not enough credits to build {:?} - {}.", zone_type, tier_info.name), 0.0);
         return;
