@@ -105,7 +105,7 @@ pub(super) fn update_research_panel_system(
             for tech in all_techs {
                 if !game_state.unlocked_techs.contains(&tech) {
                      parent.spawn((ButtonBundle{ style: Style { width: Val::Percent(100.0), padding: UiRect::all(Val::Px(8.0)), margin: UiRect::bottom(Val::Px(4.0)), ..default() }, background_color: NORMAL_BUTTON.into(), ..default()}, ResearchItemButton(tech)))
-                     .with_children(|b| {b.spawn(TextBundle::from_section(format!("{:?}", tech), TextStyle { color: PRIMARY_TEXT_COLOR, ..default() }));});
+                     .with_children(|b| {b.spawn(TextBundle::from_section(tech.to_string(), TextStyle { color: PRIMARY_TEXT_COLOR, ..default() }));});
                 }
             }
         });
@@ -142,7 +142,7 @@ pub(super) fn update_research_details_panel_system(
             let (progress, active) = game_state.research_progress.as_ref().map(|(t,p)| (*p as u32, Some(*t))).unwrap_or((0,None));
             commands.entity(panel).with_children(|parent| {
                 parent.spawn(TextBundle::from_section(
-                    format!("{:?}", tech),
+                    tech.to_string(),
                     TextStyle { font_size: 22.0, color: PRIMARY_TEXT_COLOR, ..default() },
                 ));
                 parent.spawn(TextBundle::from_section(

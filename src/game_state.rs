@@ -3,6 +3,7 @@
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::fmt;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -521,6 +522,20 @@ pub enum Tech {
     IndustrialProcessing,
     ZoningOrdinances,
     ArcologyConstruction,
+}
+
+impl fmt::Display for Tech {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let name = match self {
+            Tech::BasicConstructionProtocols => "Basic Construction Protocols",
+            Tech::EfficientExtraction => "Efficient Extraction",
+            Tech::AdvancedFabrication => "Advanced Fabrication",
+            Tech::IndustrialProcessing => "Industrial Processing",
+            Tech::ZoningOrdinances => "Zoning Ordinances",
+            Tech::ArcologyConstruction => "Arcology Construction",
+        };
+        write!(f, "{}", name)
+    }
 }
 
 // --- Data-Driven Building Structs ---
