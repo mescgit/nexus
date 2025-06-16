@@ -3,6 +3,10 @@ name = "nexus"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "nexus"
+path = "src/lib.rs"
+
 [dependencies]
 bevy = "0.12.1"
 bevy_prototype_lyon = "0.10.0"

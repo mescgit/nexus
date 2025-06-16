@@ -982,6 +982,12 @@ pub fn add_habitation_structure(
     }
 
     let tier_info = &all_tiers[tier_index];
+    if let Some(req) = tier_info.required_tech {
+        if !game_state.unlocked_techs.contains(&req) {
+            add_notification(&mut game_state.notifications, format!("Technology {:?} required to build {}.", req, tier_info.name), 0.0);
+            return;
+        }
+    }
     if game_state.credits < tier_info.construction_credits_cost as f64 {
         add_notification(&mut game_state.notifications, format!("Not enough credits to build {}.", tier_info.name), 0.0);
         return;
@@ -1095,7 +1101,7 @@ pub fn get_service_building_tiers(service_type: ServiceType) -> Vec<ServiceBuild
         ],
         ServiceType::Security => vec![
             ServiceBuildingTier { name: "Security Post".to_string(), specialist_requirement: 3, service_capacity: 50, service_radius: 50.0, upkeep_cost: 15, civic_index_contribution: 5, construction_credits_cost: 150, required_tech: None },
-            ServiceBuildingTier { name: "Precinct".to_string(), specialist_requirement: 7, service_capacity: 250, service_radius: 75.0, upkeep_cost: 40, civic_index_contribution: 15, construction_credits_cost: 450, required_tech: None },
+            ServiceBuildingTier { name: "Precinct".to_string(), specialist_requirement: 7, service_capacity: 250, service_radius: 75.0, upkeep_cost: 40, civic_index_contribution: 15, construction_credits_cost: 450, required_tech: Some(Tech::BasicConstructionProtocols) },
         ],
         ServiceType::Education => vec![ ServiceBuildingTier { name: "School".to_string(), specialist_requirement: 4, service_capacity: 100, service_radius: 60.0, upkeep_cost: 25, civic_index_contribution: 10, construction_credits_cost: 300, required_tech: None } ],
         ServiceType::Recreation => vec![ ServiceBuildingTier { name: "Rec Center".to_string(), specialist_requirement: 3, service_capacity: 100, service_radius: 60.0, upkeep_cost: 20, civic_index_contribution: 8, construction_credits_cost: 250, required_tech: None } ],
@@ -1110,6 +1116,12 @@ pub fn add_service_building(game_state: &mut GameState, service_type: ServiceTyp
         return;
     }
     let tier_info = &all_tiers[tier_index];
+    if let Some(req) = tier_info.required_tech {
+        if !game_state.unlocked_techs.contains(&req) {
+            add_notification(&mut game_state.notifications, format!("Technology {:?} required to build {:?} - {}.", req, service_type, tier_info.name), 0.0);
+            return;
+        }
+    }
     if game_state.credits < tier_info.construction_credits_cost as f64 {
         add_notification(&mut game_state.notifications, format!("Not enough credits to build {:?} - {}.", service_type, tier_info.name), 0.0);
         return;
@@ -1232,6 +1244,12 @@ pub fn add_zone(game_state: &mut GameState, zone_type: ZoneType, tier_index: usi
         return;
     }
     let tier_info = &all_tiers[tier_index];
+    if let Some(req) = tier_info.required_tech {
+        if !game_state.unlocked_techs.contains(&req) {
+            add_notification(&mut game_state.notifications, format!("Technology {:?} required to build {:?} - {}.", req, zone_type, tier_info.name), 0.0);
+            return;
+        }
+    }
     if game_state.credits < tier_info.construction_credits_cost as f64 {
         add_notification(&mut game_state.notifications, format!("Not enough credits to build {:?} - {}.", zone_type, tier_info.name), 0.0);
         return;
